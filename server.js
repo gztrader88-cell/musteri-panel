@@ -154,7 +154,6 @@ let cachedKur = { value: 43, timestamp: 0 };
 
 async function getDolarKuru() {
   const now = Date.now();
-  // 10 dakikada bir guncelle
   if (now - cachedKur.timestamp < 600000 && cachedKur.value) {
     return cachedKur.value;
   }
@@ -164,43 +163,32 @@ async function getDolarKuru() {
     const data = await response.json();
     if (data && data.rates && data.rates.TRY) {
       cachedKur = { value: data.rates.TRY, timestamp: now };
-      console.log('Kur guncellendi:', cachedKur.value);
       return cachedKur.value;
     }
-  } catch (e) {
-    console.log('Kur API hatasi, alternatif deneniyor...');
-  }
+  } catch (e) {}
   
   try {
     const response2 = await fetch('https://open.er-api.com/v6/latest/USD');
     const data2 = await response2.json();
     if (data2 && data2.rates && data2.rates.TRY) {
       cachedKur = { value: data2.rates.TRY, timestamp: now };
-      console.log('Kur guncellendi (alt):', cachedKur.value);
       return cachedKur.value;
     }
-  } catch (e2) {
-    console.log('Alternatif API de basarisiz');
-  }
+  } catch (e2) {}
   
   return cachedKur.value || 43;
 }
 
-// Piyasa acik mi kontrol
 function isMarketOpen() {
   const now = new Date();
   const turkeyTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
   const day = turkeyTime.getDay();
   const hour = turkeyTime.getHours() + turkeyTime.getMinutes() / 60;
-  
-  // Hafta sonu kapali
   if (day === 0 || day === 6) return false;
-  
-  // 09:30 - 18:00 arasi acik
   return hour >= MARKET_START && hour < MARKET_END;
 }
 
-// MQL'den veri al
+// API endpoints
 app.post('/api/veri', async (req, res) => {
   try {
     const { hesap_no, isim, varlik, toplam_yuzde, bugun_kar, acik, kapali, buyukluk, bugun_yuzde } = req.body;
@@ -211,10 +199,8 @@ app.post('/api/veri', async (req, res) => {
         isim = $2, varlik = $3, toplam_yuzde = $4, bugun_kar = $5,
         acik_pozisyon = $6, kapali_pozisyon = $7, buyukluk = $8, bugun_yuzde = $9, son_guncelleme = NOW()
     `, [hesap_no, isim, varlik, toplam_yuzde, bugun_kar, acik, kapali, buyukluk, bugun_yuzde]);
-    console.log('Veri alindi:', hesap_no, isim);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Veri kayit hatasi:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -235,7 +221,12 @@ app.get('/api/musteriler', async (req, res) => {
 
 app.get('/api/kayitli', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM musteri_kayit ORDER BY created_at DESC');
+    const result = await pool.query(`
+      SELECT mk.*, m.isim, m.varlik, m.bugun_kar, m.bugun_yuzde, m.acik_pozisyon, m.son_guncelleme
+      FROM musteri_kayit mk
+      LEFT JOIN musteriler m ON mk.hesap_no = m.hesap_no
+      ORDER BY mk.created_at DESC
+    `);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -258,10 +249,10 @@ app.post('/api/kayit', async (req, res) => {
 app.put('/api/kayit/:hesap_no', async (req, res) => {
   try {
     const { hesap_no } = req.params;
-    const { hakedis_miktari, komisyon_orani, para_birimi, es_dost, aktif } = req.body;
+    const { baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, aktif } = req.body;
     await pool.query(
-      'UPDATE musteri_kayit SET hakedis_miktari=$1, komisyon_orani=$2, para_birimi=$3, es_dost=$4, aktif=$5 WHERE hesap_no=$6',
-      [hakedis_miktari, komisyon_orani, para_birimi, es_dost, aktif, hesap_no]
+      'UPDATE musteri_kayit SET baslangic_parasi=$1, hakedis_miktari=$2, komisyon_orani=$3, para_birimi=$4, es_dost=$5, aktif=$6 WHERE hesap_no=$7',
+      [baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, aktif, hesap_no]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -275,9 +266,18 @@ app.get('/api/kur', async (req, res) => {
   res.json({ kur, marketOpen });
 });
 
+// Ana sayfa (dashboard)
 app.get('/', (req, res) => {
-  res.send(`
-<!DOCTYPE html>
+  res.send(getMainPage());
+});
+
+// Musteriler sayfasi
+app.get('/musteriler', (req, res) => {
+  res.send(getCustomersPage());
+});
+
+function getMainPage() {
+  return `<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
@@ -291,7 +291,9 @@ app.get('/', (req, res) => {
     .market-status{font-size:0.7rem;margin-top:5px;opacity:0.9}
     .market-open{color:#90EE90}
     .market-closed{color:#ffcccb}
-    .settings-btn{position:absolute;right:15px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.2);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .header-btns{position:absolute;right:15px;top:50%;transform:translateY(-50%);display:flex;gap:6px}
+    .header-btn{background:rgba(255,255,255,0.2);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:0.75rem;text-decoration:none;display:inline-block}
+    .header-btn:hover{background:rgba(255,255,255,0.3)}
     .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px;padding:10px}
     .stat-card{background:#fff;padding:10px;border-radius:8px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
     .stat-value{font-size:1rem;font-weight:bold;color:#1a73e8}
@@ -339,7 +341,10 @@ app.get('/', (req, res) => {
   <div class="header">
     <h1>Musteri Takip Paneli</h1>
     <div class="market-status" id="marketStatus">Piyasa durumu yukleniyor...</div>
-    <button class="settings-btn" onclick="showSettings()">⚙️</button>
+    <div class="header-btns">
+      <a href="/musteriler" class="header-btn">👥 Musteriler</a>
+      <button class="header-btn" onclick="showSettings()">⚙️</button>
+    </div>
   </div>
   
   <div class="stats">
@@ -412,8 +417,8 @@ app.get('/', (req, res) => {
         <button class="modal-close" onclick="closeSettings()">×</button>
       </div>
       <div class="tabs">
-        <button class="tab active" onclick="showTab('add')">Yeni Ekle</button>
-        <button class="tab" onclick="showTab('list')">Liste</button>
+        <button class="tab active" onclick="showTab('add', event)">Yeni Ekle</button>
+        <button class="tab" onclick="showTab('list', event)">Liste</button>
       </div>
       <div id="tabAdd">
         <div class="form-group">
@@ -434,6 +439,7 @@ app.get('/', (req, res) => {
             <option value="25">%25</option>
             <option value="20">%20</option>
             <option value="30">%30</option>
+            <option value="0">%0</option>
           </select>
         </div>
         <div class="form-group">
@@ -466,9 +472,7 @@ app.get('/', (req, res) => {
     }
     
     function isActive(lastUpdate) {
-      // Piyasa kapali ise kontrol yapma
       if (!MARKET_OPEN) return true;
-      
       if (!lastUpdate) return false;
       const diff = (new Date() - new Date(lastUpdate)) / 1000 / 60;
       return diff < 65;
@@ -495,7 +499,6 @@ app.get('/', (req, res) => {
       const varlik = parseFloat(c.varlik) || 0;
       const hakedis = parseFloat(c.hakedis_miktari) || 0;
       const oran = (parseFloat(c.komisyon_orani) || 0) / 100;
-      
       if (c.para_birimi === 'USD') {
         const varlikUSD = varlik / DOLAR_KURU;
         const fark = varlikUSD - hakedis;
@@ -513,9 +516,9 @@ app.get('/', (req, res) => {
     function showSettings() { document.getElementById('settingsModal').classList.add('show'); loadKayitli(); }
     function closeSettings() { document.getElementById('settingsModal').classList.remove('show'); }
     
-    function showTab(tab) {
+    function showTab(tab, event) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      event.target.classList.add('active');
+      if (event && event.target) event.target.classList.add('active');
       document.getElementById('tabAdd').style.display = tab === 'add' ? 'block' : 'none';
       document.getElementById('tabList').style.display = tab === 'list' ? 'block' : 'none';
       if (tab === 'list') loadKayitli();
@@ -561,7 +564,6 @@ app.get('/', (req, res) => {
         DOLAR_KURU = kurData.kur || 43;
         MARKET_OPEN = kurData.marketOpen;
         
-        // Piyasa durumu
         const marketStatusEl = document.getElementById('marketStatus');
         if (MARKET_OPEN) {
           marketStatusEl.innerHTML = '<span class="market-open">● Piyasa Acik</span> | $1 = ' + DOLAR_KURU.toFixed(2) + ' TL';
@@ -588,7 +590,6 @@ app.get('/', (req, res) => {
         document.getElementById('lastUpdate').textContent = new Date().toLocaleString('tr-TR');
         document.getElementById('kurInfo').textContent = '$1 = ' + DOLAR_KURU.toFixed(2) + ' TL';
         
-        // Uyarilar
         const majPos = getMajorityPosition(allData);
         const posIssues = allData.filter(c => (c.acik_pozisyon || 0) !== majPos);
         const { mean, stdDev } = getStdDev(allData);
@@ -597,7 +598,6 @@ app.get('/', (req, res) => {
         const gelmeyenler = kayitliData.filter(k => k.aktif !== false && !gelenIDs.includes(k.hesap_no));
         
         let alertsHtml = '';
-        
         if (MARKET_OPEN) {
           const inactiveList = allData.filter(c => !isActive(c.son_guncelleme));
           if (gelmeyenler.length > 0) alertsHtml += '<button class="alert-btn danger" onclick="showGelmeyenler()">🚨 Veri Yok: ' + gelmeyenler.length + '</button>';
@@ -612,7 +612,6 @@ app.get('/', (req, res) => {
         }
         document.getElementById('alerts').innerHTML = alertsHtml;
         
-        // Tablo
         const tbody = document.getElementById('customerTable');
         if (allData.length === 0) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px">Veri bekleniyor...</td></tr>'; return; }
         
@@ -626,7 +625,6 @@ app.get('/', (req, res) => {
           let rowClass = '';
           if (c.es_dost) rowClass = 'es-dost';
           else if (posIssue || isOutlier) rowClass = 'highlight';
-          
           let statusClass = 'status-online';
           if (!MARKET_OPEN) statusClass = 'status-neutral';
           else if (!active) statusClass = 'status-offline';
@@ -669,9 +667,455 @@ app.get('/', (req, res) => {
     setInterval(loadData, 30000);
   </script>
 </body>
-</html>
-  `);
-});
+</html>`;
+}
+
+function getCustomersPage() {
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Musteriler</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;font-size:14px}
+    .header{background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;padding:15px;display:flex;align-items:center;gap:15px}
+    .back-btn{background:rgba(255,255,255,0.2);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;text-decoration:none;font-size:0.85rem}
+    .back-btn:hover{background:rgba(255,255,255,0.3)}
+    .header h1{font-size:1.2rem;flex:1;text-align:center}
+    .search-bar{padding:10px;background:#fff;border-bottom:1px solid #eee}
+    .search-bar input{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:20px;font-size:0.85rem;outline:none}
+    .search-bar input:focus{border-color:#1a73e8}
+    .customer-grid{padding:10px;display:grid;gap:8px}
+    .customer-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,0.1);cursor:pointer;transition:all 0.15s;border-left:4px solid #e5e7eb}
+    .customer-card:hover{box-shadow:0 3px 12px rgba(0,0,0,0.15);transform:translateY(-1px)}
+    .customer-card.active{border-left-color:#22c55e}
+    .customer-card.inactive{border-left-color:#ef4444}
+    .customer-card.neutral{border-left-color:#9ca3af}
+    .customer-card.es-dost{background:#f0f9ff;border-left-color:#0ea5e9}
+    .card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+    .card-name{font-weight:600;font-size:0.9rem;color:#1e293b}
+    .card-id{font-size:0.7rem;color:#94a3b8;margin-top:2px}
+    .card-badge{font-size:0.65rem;padding:2px 8px;border-radius:10px;background:#f1f5f9;color:#64748b}
+    .card-badge.es-dost-badge{background:#e0f2fe;color:#0369a1}
+    .card-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px}
+    .card-stat{text-align:center;background:#f8fafc;border-radius:6px;padding:5px}
+    .card-stat-value{font-size:0.8rem;font-weight:600}
+    .card-stat-label{font-size:0.6rem;color:#94a3b8;margin-top:1px}
+    .card-footer{margin-top:8px;display:flex;justify-content:space-between;align-items:center;font-size:0.7rem;color:#94a3b8}
+    .positive{color:#0d9488}
+    .negative{color:#dc2626}
+    .filter-bar{padding:8px 10px;display:flex;gap:6px;overflow-x:auto;background:#fff;border-bottom:1px solid #eee}
+    .filter-btn{padding:5px 12px;border-radius:15px;border:1px solid #ddd;font-size:0.7rem;cursor:pointer;white-space:nowrap;background:#fff}
+    .filter-btn.active{background:#1a73e8;color:#fff;border-color:#1a73e8}
+    .count-badge{display:inline-block;background:#1a73e8;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.65rem;margin-left:4px}
+    
+    /* Edit Modal */
+    .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:200;align-items:flex-end;justify-content:center}
+    .modal.show{display:flex}
+    .modal-sheet{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:92vh;overflow:auto;padding:20px;animation:slideUp 0.2s ease}
+    @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+    .modal-handle{width:40px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px}
+    .modal-title{font-size:1.1rem;font-weight:700;color:#1e293b;margin-bottom:4px}
+    .modal-subtitle{font-size:0.75rem;color:#94a3b8;margin-bottom:18px}
+    .section-title{font-size:0.7rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;margin-top:16px}
+    .info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:0.85rem}
+    .info-label{color:#64748b}
+    .info-value{font-weight:500;color:#1e293b}
+    .form-group{margin-bottom:12px}
+    .form-group label{display:block;margin-bottom:4px;font-size:0.78rem;color:#64748b;font-weight:500}
+    .form-group input,.form-group select{width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:0.85rem;outline:none;transition:border-color 0.15s}
+    .form-group input:focus,.form-group select:focus{border-color:#1a73e8}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .checkbox-group{display:flex;align-items:center;gap:8px;padding:10px 0}
+    .checkbox-group input[type=checkbox]{width:18px;height:18px;cursor:pointer}
+    .checkbox-group label{font-size:0.85rem;color:#374151;cursor:pointer;font-weight:500}
+    .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+    .btn{padding:12px;border:none;border-radius:10px;cursor:pointer;font-size:0.9rem;font-weight:600}
+    .btn-primary{background:#1a73e8;color:#fff}
+    .btn-primary:hover{background:#1557b0}
+    .btn-secondary{background:#f1f5f9;color:#374151}
+    .btn-secondary:hover{background:#e2e8f0}
+    .btn-danger{background:#fee2e2;color:#991b1b}
+    .hakedis-hint{font-size:0.72rem;color:#1a73e8;margin-top:4px;background:#eff6ff;padding:6px 8px;border-radius:6px}
+    .no-data{text-align:center;padding:40px 20px;color:#94a3b8}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="/" class="back-btn">← Geri</a>
+    <h1>Musteriler</h1>
+    <div style="width:60px"></div>
+  </div>
+
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="Isim veya hesap no ara..." oninput="filterCustomers()">
+  </div>
+
+  <div class="filter-bar">
+    <button class="filter-btn active" onclick="setFilter('all', this)">Tumu <span class="count-badge" id="countAll">0</span></button>
+    <button class="filter-btn" onclick="setFilter('active', this)">Aktif <span class="count-badge" id="countActive">0</span></button>
+    <button class="filter-btn" onclick="setFilter('inactive', this)">Pasif <span class="count-badge" id="countInactive">0</span></button>
+    <button class="filter-btn" onclick="setFilter('esdost', this)">Es-Dost <span class="count-badge" id="countEsDost">0</span></button>
+    <button class="filter-btn" onclick="setFilter('kayitsiz', this)">Kayitsiz <span class="count-badge" id="countKayitsiz">0</span></button>
+  </div>
+
+  <div class="customer-grid" id="customerGrid">
+    <div class="no-data">Yukleniyor...</div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div class="modal" id="editModal" onclick="handleModalBackdrop(event)">
+    <div class="modal-sheet" id="editSheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title" id="editTitle">Musteri Duzenle</div>
+      <div class="modal-subtitle" id="editSubtitle"></div>
+
+      <!-- Canli veriler (salt okunur) -->
+      <div class="section-title">📊 Canli Veriler (MQL)</div>
+      <div class="info-row">
+        <span class="info-label">Son Varlik</span>
+        <span class="info-value" id="infoVarlik">-</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Bugun Kar/Zarar</span>
+        <span class="info-value" id="infoBugunKar">-</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Bugun %</span>
+        <span class="info-value" id="infoBugunPct">-</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Acik Pozisyon</span>
+        <span class="info-value" id="infoAcikPoz">-</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Son Guncelleme</span>
+        <span class="info-value" id="infoSonGun">-</span>
+      </div>
+
+      <!-- Duzenlenebilir alanlar -->
+      <div class="section-title">✏️ Kayit Bilgileri (Duzenlenebilir)</div>
+      
+      <input type="hidden" id="editHesapNo">
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Baslangic Parasi</label>
+          <input type="number" id="editBaslangic" placeholder="250000">
+        </div>
+        <div class="form-group">
+          <label>Para Birimi</label>
+          <select id="editParaBirimi">
+            <option value="TL">TL</option>
+            <option value="USD">USD</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Hakedis Miktari (Son Bakiye)</label>
+        <input type="number" id="editHakedis" placeholder="0">
+        <div class="hakedis-hint" id="hakedisHint">💡 Hak edis sonrasi veya para cekiminden sonra buradaki degeri guncelleyin. Komisyon bu deger uzerinden hesaplanir.</div>
+      </div>
+
+      <div class="form-group">
+        <label>Komisyon Orani (%)</label>
+        <select id="editKomisyon">
+          <option value="30">%30</option>
+          <option value="25">%25</option>
+          <option value="20">%20</option>
+          <option value="15">%15</option>
+          <option value="0">%0 (Komisyonsuz)</option>
+        </select>
+      </div>
+
+      <div class="checkbox-group">
+        <input type="checkbox" id="editEsDost">
+        <label for="editEsDost">Es-Dost (Komisyon hesaplanmaz)</label>
+      </div>
+      <div class="checkbox-group">
+        <input type="checkbox" id="editAktif">
+        <label for="editAktif">Aktif musteri</label>
+      </div>
+
+      <div id="komisyonBilgi" style="margin-top:12px;padding:10px;background:#f0fdf4;border-radius:8px;font-size:0.8rem;color:#166534"></div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="closeEditModal()">Iptal</button>
+        <button class="btn btn-primary" onclick="saveCustomer()">💾 Kaydet</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allCustomers = [];
+    let kayitliCustomers = [];
+    let currentFilter = 'all';
+    let DOLAR_KURU = 43;
+    let MARKET_OPEN = true;
+
+    function formatMoney(n) {
+      if (n === null || n === undefined || isNaN(n)) return '0';
+      return new Intl.NumberFormat('tr-TR').format(Math.round(n));
+    }
+
+    function isActive(lastUpdate) {
+      if (!MARKET_OPEN) return null; // null = piyasa kapali
+      if (!lastUpdate) return false;
+      const diff = (new Date() - new Date(lastUpdate)) / 1000 / 60;
+      return diff < 65;
+    }
+
+    function calcKomisyon(c) {
+      if (!c.hakedis_miktari || c.es_dost) return 0;
+      const varlik = parseFloat(c.varlik) || 0;
+      const hakedis = parseFloat(c.hakedis_miktari) || 0;
+      const oran = (parseFloat(c.komisyon_orani) || 0) / 100;
+      if (c.para_birimi === 'USD') {
+        const varlikUSD = varlik / DOLAR_KURU;
+        return (varlikUSD - hakedis) * oran * DOLAR_KURU;
+      }
+      return (varlik - hakedis) * oran;
+    }
+
+    function setFilter(filter, btn) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderCards();
+    }
+
+    function filterCustomers() {
+      renderCards();
+    }
+
+    function getFilteredData() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const kayitliIDs = kayitliCustomers.map(k => k.hesap_no);
+      
+      let data = [...allCustomers];
+      
+      // Kayitsizleri de ekle
+      if (currentFilter === 'kayitsiz') {
+        // Sadece kayitlilarda olup musterilerde olmayanlar
+        const gelenlIDs = allCustomers.map(c => c.hesap_no);
+        const kayitsizlar = kayitliCustomers.filter(k => !gelenlIDs.includes(k.hesap_no));
+        return kayitsizlar.filter(k => {
+          if (!search) return true;
+          return k.hesap_no.toLowerCase().includes(search);
+        });
+      }
+
+      // Filtrele
+      if (currentFilter === 'active') data = data.filter(c => isActive(c.son_guncelleme) === true);
+      else if (currentFilter === 'inactive') data = data.filter(c => isActive(c.son_guncelleme) === false);
+      else if (currentFilter === 'esdost') data = data.filter(c => c.es_dost);
+
+      // Arama
+      if (search) {
+        data = data.filter(c => 
+          (c.isim || '').toLowerCase().includes(search) ||
+          c.hesap_no.toLowerCase().includes(search)
+        );
+      }
+
+      return data;
+    }
+
+    function updateCounts() {
+      const gelenlIDs = allCustomers.map(c => c.hesap_no);
+      document.getElementById('countAll').textContent = allCustomers.length;
+      document.getElementById('countActive').textContent = allCustomers.filter(c => isActive(c.son_guncelleme) === true).length;
+      document.getElementById('countInactive').textContent = allCustomers.filter(c => isActive(c.son_guncelleme) === false).length;
+      document.getElementById('countEsDost').textContent = allCustomers.filter(c => c.es_dost).length;
+      document.getElementById('countKayitsiz').textContent = kayitliCustomers.filter(k => !gelenlIDs.includes(k.hesap_no)).length;
+    }
+
+    function renderCards() {
+      const data = getFilteredData();
+      const grid = document.getElementById('customerGrid');
+      
+      if (data.length === 0) {
+        grid.innerHTML = '<div class="no-data">Musteri bulunamadi</div>';
+        return;
+      }
+
+      grid.innerHTML = data.map(c => {
+        const active = isActive(c.son_guncelleme);
+        const bugunKar = parseFloat(c.bugun_kar) || 0;
+        const bugunPct = parseFloat(c.bugun_yuzde) || 0;
+        const komisyon = calcKomisyon(c);
+        
+        let cardClass = 'customer-card';
+        let statusText = '';
+        if (c.es_dost) { cardClass += ' es-dost'; statusText = 'Es-Dost'; }
+        else if (active === true) { cardClass += ' active'; statusText = 'Aktif'; }
+        else if (active === false) { cardClass += ' inactive'; statusText = 'Pasif'; }
+        else { cardClass += ' neutral'; statusText = 'Piyasa Kapali'; }
+
+        // Kayitsiz kart (sadece kayit var, canli veri yok)
+        if (!c.varlik && c.baslangic_parasi) {
+          return '<div class="' + cardClass + '" onclick="openEditModal(' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">' +
+            '<div class="card-header">' +
+              '<div><div class="card-name">#' + c.hesap_no + '</div><div class="card-id">Canli veri bekleniyor</div></div>' +
+              '<span class="card-badge">Kayitli</span>' +
+            '</div>' +
+            '<div class="info-row" style="font-size:0.8rem;padding:4px 0">' +
+              '<span style="color:#64748b">Baslangic</span><span>' + formatMoney(c.baslangic_parasi) + ' ' + (c.para_birimi||'TL') + '</span>' +
+            '</div>' +
+          '</div>';
+        }
+
+        return '<div class="' + cardClass + '" onclick="openEditModal(' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">' +
+          '<div class="card-header">' +
+            '<div>' +
+              '<div class="card-name">' + (c.isim || '#' + c.hesap_no) + '</div>' +
+              '<div class="card-id">#' + c.hesap_no + ' · ' + (c.para_birimi || 'TL') + '</div>' +
+            '</div>' +
+            '<span class="card-badge' + (c.es_dost ? ' es-dost-badge' : '') + '">' + statusText + '</span>' +
+          '</div>' +
+          '<div class="card-stats">' +
+            '<div class="card-stat"><div class="card-stat-value">' + formatMoney(c.varlik) + '</div><div class="card-stat-label">Varlik</div></div>' +
+            '<div class="card-stat"><div class="card-stat-value ' + (bugunKar >= 0 ? 'positive' : 'negative') + '">' + (bugunKar >= 0 ? '+' : '') + formatMoney(bugunKar) + '</div><div class="card-stat-label">Bugun</div></div>' +
+            '<div class="card-stat"><div class="card-stat-value ' + (komisyon >= 0 ? 'positive' : 'negative') + '">' + (c.es_dost ? '-' : formatMoney(komisyon)) + '</div><div class="card-stat-label">Komisyon</div></div>' +
+          '</div>' +
+          '<div class="card-footer">' +
+            '<span>Hakedis: ' + formatMoney(c.hakedis_miktari) + ' ' + (c.para_birimi||'TL') + '</span>' +
+            '<span>%' + bugunPct.toFixed(2) + ' bugun</span>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function openEditModal(c) {
+      document.getElementById('editHesapNo').value = c.hesap_no;
+      document.getElementById('editTitle').textContent = c.isim || ('#' + c.hesap_no);
+      document.getElementById('editSubtitle').textContent = 'Hesap No: ' + c.hesap_no;
+      
+      // Canli veriler
+      const bugunKar = parseFloat(c.bugun_kar) || 0;
+      const bugunPct = parseFloat(c.bugun_yuzde) || 0;
+      document.getElementById('infoVarlik').textContent = c.varlik ? formatMoney(c.varlik) + ' ' + (c.para_birimi||'TL') : 'Veri yok';
+      document.getElementById('infoBugunKar').innerHTML = c.bugun_kar !== undefined ? 
+        '<span class="' + (bugunKar>=0?'positive':'negative') + '">' + (bugunKar>=0?'+':'') + formatMoney(bugunKar) + '</span>' : '-';
+      document.getElementById('infoBugunPct').innerHTML = c.bugun_yuzde !== undefined ?
+        '<span class="' + (bugunPct>=0?'positive':'negative') + '">' + (bugunPct>=0?'+':'') + bugunPct.toFixed(2) + '%</span>' : '-';
+      document.getElementById('infoAcikPoz').textContent = c.acik_pozisyon !== undefined ? c.acik_pozisyon : '-';
+      document.getElementById('infoSonGun').textContent = c.son_guncelleme ? 
+        new Date(c.son_guncelleme).toLocaleString('tr-TR') : 'Veri gelmedi';
+
+      // Duzenlenebilir alanlar
+      document.getElementById('editBaslangic').value = c.baslangic_parasi || '';
+      document.getElementById('editHakedis').value = c.hakedis_miktari || '';
+      document.getElementById('editKomisyon').value = c.komisyon_orani || 25;
+      document.getElementById('editParaBirimi').value = c.para_birimi || 'TL';
+      document.getElementById('editEsDost').checked = !!c.es_dost;
+      document.getElementById('editAktif').checked = c.aktif !== false;
+
+      // Komisyon bilgisi
+      updateKomisyonBilgi(c);
+
+      // Hakedis input degisince komisyonu guncelle
+      document.getElementById('editHakedis').oninput = function() {
+        const temp = {...c, hakedis_miktari: this.value, komisyon_orani: document.getElementById('editKomisyon').value, para_birimi: document.getElementById('editParaBirimi').value};
+        updateKomisyonBilgi(temp);
+      };
+      document.getElementById('editKomisyon').onchange = function() {
+        const temp = {...c, hakedis_miktari: document.getElementById('editHakedis').value, komisyon_orani: this.value, para_birimi: document.getElementById('editParaBirimi').value};
+        updateKomisyonBilgi(temp);
+      };
+
+      document.getElementById('editModal').classList.add('show');
+    }
+
+    function updateKomisyonBilgi(c) {
+      const esDost = document.getElementById('editEsDost') ? document.getElementById('editEsDost').checked : c.es_dost;
+      if (esDost) { document.getElementById('komisyonBilgi').textContent = ''; return; }
+      const varlik = parseFloat(c.varlik) || 0;
+      const hakedis = parseFloat(c.hakedis_miktari) || 0;
+      const oran = (parseFloat(c.komisyon_orani) || 0) / 100;
+      let komisyon = 0, fark = 0;
+      if (c.para_birimi === 'USD') {
+        const varlikUSD = varlik / DOLAR_KURU;
+        fark = varlikUSD - hakedis;
+        komisyon = fark * oran * DOLAR_KURU;
+      } else {
+        fark = varlik - hakedis;
+        komisyon = fark * oran;
+      }
+      if (varlik > 0) {
+        const sign = fark >= 0 ? '+' : '';
+        document.getElementById('komisyonBilgi').innerHTML = 
+          '💰 Mevcut Durum: Varlik <strong>' + formatMoney(varlik) + '</strong> - Hakedis <strong>' + formatMoney(hakedis) + '</strong> = <strong>' + sign + formatMoney(fark) + '</strong>' +
+          '<br>📊 Komisyon (%' + (parseFloat(c.komisyon_orani)||0) + '): <strong>' + (komisyon>=0?'+':'') + formatMoney(komisyon) + ' TL</strong>';
+      } else {
+        document.getElementById('komisyonBilgi').innerHTML = 'ℹ️ Canli veri geldiginde komisyon hesaplanacak.';
+      }
+    }
+
+    function handleModalBackdrop(e) {
+      if (e.target === document.getElementById('editModal')) closeEditModal();
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').classList.remove('show');
+    }
+
+    async function saveCustomer() {
+      const hesap_no = document.getElementById('editHesapNo').value;
+      const data = {
+        baslangic_parasi: parseFloat(document.getElementById('editBaslangic').value) || 0,
+        hakedis_miktari: parseFloat(document.getElementById('editHakedis').value) || 0,
+        komisyon_orani: parseInt(document.getElementById('editKomisyon').value) || 0,
+        para_birimi: document.getElementById('editParaBirimi').value,
+        es_dost: document.getElementById('editEsDost').checked,
+        aktif: document.getElementById('editAktif').checked
+      };
+
+      try {
+        const res = await fetch('/api/kayit/' + hesap_no, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(data)
+        });
+        if (res.ok) {
+          closeEditModal();
+          await loadData();
+        } else {
+          alert('Kayit sirasinda hata olustu!');
+        }
+      } catch (e) {
+        alert('Baglanti hatasi!');
+      }
+    }
+
+    async function loadData() {
+      try {
+        const [mRes, kayitliRes, kurRes] = await Promise.all([
+          fetch('/api/musteriler'),
+          fetch('/api/kayitli'),
+          fetch('/api/kur')
+        ]);
+        allCustomers = await mRes.json();
+        kayitliCustomers = await kayitliRes.json();
+        const kurData = await kurRes.json();
+        DOLAR_KURU = kurData.kur || 43;
+        MARKET_OPEN = kurData.marketOpen;
+        updateCounts();
+        renderCards();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    loadData();
+    setInterval(loadData, 60000);
+  </script>
+</body>
+</html>`;
+}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Server port ' + PORT));
