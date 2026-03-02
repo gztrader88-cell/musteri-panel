@@ -266,6 +266,80 @@ app.get('/api/kur', async (req, res) => {
   res.json({ kur, marketOpen });
 });
 
+// Excel export endpoint
+app.get('/api/export', async (req, res) => {
+  try {
+    const kur = await getDolarKuru();
+    const result = await pool.query(`
+      SELECT m.hesap_no, m.isim, m.varlik, m.bugun_kar, m.bugun_yuzde, m.acik_pozisyon, m.kapali_pozisyon, m.buyukluk, m.toplam_yuzde, m.son_guncelleme,
+             k.baslangic_parasi, k.komisyon_orani, k.para_birimi, k.es_dost, k.aktif, k.created_at
+      FROM musteri_kayit k
+      LEFT JOIN musteriler m ON k.hesap_no = m.hesap_no
+      ORDER BY COALESCE(m.varlik, 0) DESC
+    `);
+
+    const rows = result.rows;
+    const now = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+
+    // Komisyon hesapla
+    function calcKom(c) {
+      if (!c.baslangic_parasi || c.es_dost) return 0;
+      const varlik = parseFloat(c.varlik) || 0;
+      const baslangic = parseFloat(c.baslangic_parasi) || 0;
+      const oran = (parseFloat(c.komisyon_orani) || 0) / 100;
+      if (c.para_birimi === 'USD') {
+        return (varlik / kur - baslangic) * oran * kur;
+      }
+      return (varlik - baslangic) * oran;
+    }
+
+    // CSV olustur (Excel'de acar)
+    const headers = ['Hesap No','Isim','Para Birimi','Varlik','Baslangic Parasi','Komisyon Orani %','Komisyon TL','Bugun Kar','Bugun %','Acik Pozisyon','Es Dost','Aktif','Son Guncelleme','Kayit Tarihi'];
+    
+    const csvRows = rows.map(c => {
+      const komisyon = calcKom(c);
+      return [
+        c.hesap_no,
+        c.isim || '',
+        c.para_birimi || 'TL',
+        c.varlik || '',
+        c.baslangic_parasi || '',
+        c.komisyon_orani || '',
+        komisyon > 0 ? Math.round(komisyon) : '',
+        c.bugun_kar || '',
+        c.bugun_yuzde || '',
+        c.acik_pozisyon || '',
+        c.es_dost ? 'Evet' : 'Hayir',
+        c.aktif !== false ? 'Evet' : 'Hayir',
+        c.son_guncelleme ? new Date(c.son_guncelleme).toLocaleString('tr-TR') : '',
+        c.created_at ? new Date(c.created_at).toLocaleString('tr-TR') : ''
+      ].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',');
+    });
+
+    const totalVarlik = rows.reduce((s, c) => s + (parseFloat(c.varlik) || 0), 0);
+    const totalKomisyon = rows.reduce((s, c) => s + calcKom(c), 0);
+
+    const summary = [
+      '',
+      '"OZET"',
+      '"Toplam Musteri","' + rows.length + '"',
+      '"Toplam Varlik","' + Math.round(totalVarlik) + '"',
+      '"Toplam Komisyon (TL)","' + Math.round(totalKomisyon) + '"',
+      '"Dolar Kuru","' + kur.toFixed(2) + '"',
+      '"Rapor Tarihi","' + now + '"'
+    ];
+
+    const csv = '\uFEFF' + headers.map(h => '"' + h + '"').join(',') + '\n' + csvRows.join('\n') + '\n' + summary.join('\n');
+
+    const filename = 'musteri_raporu_' + new Date().toISOString().slice(0,10) + '.csv';
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
+    res.send(csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Ana sayfa (dashboard)
 app.get('/', (req, res) => {
   res.send(getMainPage());
@@ -343,6 +417,7 @@ function getMainPage() {
     <div class="market-status" id="marketStatus">Piyasa durumu yukleniyor...</div>
     <div class="header-btns">
       <a href="/musteriler" class="header-btn">👥 Musteriler</a>
+      <a href="/api/export" class="header-btn">📥 Excel</a>
       <button class="header-btn" onclick="showSettings()">⚙️</button>
     </div>
   </div>
@@ -746,7 +821,7 @@ function getCustomersPage() {
   <div class="header">
     <a href="/" class="back-btn">← Geri</a>
     <h1>Musteriler</h1>
-    <div style="width:60px"></div>
+    <a href="/api/export" class="back-btn">📥 Excel</a>
   </div>
 
   <div class="search-bar">
