@@ -11,12 +11,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Veritabani tablosunu olustur
+// Veritabani tablosunu olustur (varsa dokunma)
 async function initDB() {
   try {
-    await pool.query('DROP TABLE IF EXISTS musteriler');
     await pool.query(`
-      CREATE TABLE musteriler (
+      CREATE TABLE IF NOT EXISTS musteriler (
         id SERIAL PRIMARY KEY,
         hesap_no VARCHAR(50) UNIQUE,
         isim VARCHAR(100),
