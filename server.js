@@ -20,13 +20,13 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         hesap_no VARCHAR(50) UNIQUE,
         isim VARCHAR(100),
-        varlik DECIMAL(15,2),
-        toplam_yuzde DECIMAL(5,2),
-        bugun_kar DECIMAL(15,2),
+        varlik DECIMAL(20,2),
+        toplam_yuzde DECIMAL(10,2),
+        bugun_kar DECIMAL(20,2),
         acik_pozisyon INT,
         kapali_pozisyon INT,
-        buyukluk DECIMAL(15,2),
-        bugun_yuzde DECIMAL(5,2),
+        buyukluk DECIMAL(20,2),
+        bugun_yuzde DECIMAL(10,2),
         son_guncelleme TIMESTAMP DEFAULT NOW()
       )
     `);
