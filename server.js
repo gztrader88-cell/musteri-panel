@@ -11,22 +11,34 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Veritabani tablosunu olustur
-pool.query(`
-  CREATE TABLE IF NOT EXISTS musteriler (
-    id SERIAL PRIMARY KEY,
-    hesap_no VARCHAR(50) UNIQUE,
-    isim VARCHAR(100),
-    varlik DECIMAL(15,2),
-    toplam_yuzde DECIMAL(5,2),
-    bugun_kar DECIMAL(15,2),
-    acik_pozisyon INT,
-    kapali_pozisyon INT,
-    buyukluk DECIMAL(15,2),
-    bugun_yuzde DECIMAL(5,2),
-    son_guncelleme TIMESTAMP DEFAULT NOW()
-  )
-`).then(() => console.log('Tablo hazir')).catch(console.error);
+// Veritabani tablosunu olustur (UNIQUE ile)
+async function initDB() {
+  try {
+    // Eski tabloyu sil
+    await pool.query('DROP TABLE IF EXISTS musteriler');
+    
+    // Yeni tablo olustur
+    await pool.query(`
+      CREATE TABLE musteriler (
+        id SERIAL PRIMARY KEY,
+        hesap_no VARCHAR(50) UNIQUE,
+        isim VARCHAR(100),
+        varlik DECIMAL(15,2),
+        toplam_yuzde DECIMAL(5,2),
+        bugun_kar DECIMAL(15,2),
+        acik_pozisyon INT,
+        kapali_pozisyon INT,
+        buyukluk DECIMAL(15,2),
+        bugun_yuzde DECIMAL(5,2),
+        son_guncelleme TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    console.log('Tablo olusturuldu');
+  } catch (err) {
+    console.error('Tablo hatasi:', err.message);
+  }
+}
+initDB();
 
 // MQL'den veri al (POST)
 app.post('/api/veri', async (req, res) => {
