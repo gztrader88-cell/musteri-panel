@@ -454,16 +454,6 @@ app.get('/', (req, res) => {
     </div>
   </div>
   
-  <div class="modal" id="customerModal">
-    <div class="modal-content" style="width:380px">
-      <div class="modal-header">
-        <h3 id="customerModalTitle">Musteri Detay</h3>
-        <button class="modal-close" onclick="closeCustomerModal()">×</button>
-      </div>
-      <div id="customerModalContent"></div>
-    </div>
-  </div>
-  
   <script>
     let allData = [];
     let kayitliData = [];
@@ -643,7 +633,7 @@ app.get('/', (req, res) => {
           
           return '<tr class="' + rowClass + '">' +
             '<td><span class="status-dot ' + statusClass + '"></span></td>' +
-            '<td onclick="openCustomerModal(\'' + c.hesap_no + '\')" style="cursor:pointer">' + (c.isim || '-') + '<br><small style="color:#888">#' + c.hesap_no + '</small></td>' +
+            '<td>' + (c.isim || '-') + '<br><small style="color:#888">#' + c.hesap_no + '</small></td>' +
             '<td>' + formatMoney(c.varlik) + '</td>' +
             '<td class="' + (bugunKar >= 0 ? 'positive' : 'negative') + '">' + (bugunKar >= 0 ? '+' : '') + formatMoney(bugunKar) + '</td>' +
             '<td class="' + (bugunPct >= 0 ? 'positive' : 'negative') + '">' + (bugunPct >= 0 ? '+' : '') + bugunPct.toFixed(1) + '%</td>' +
@@ -673,97 +663,6 @@ app.get('/', (req, res) => {
       const gelenIDs = allData.map(m => m.hesap_no);
       const list = kayitliData.filter(k => k.aktif !== false && !gelenIDs.includes(k.hesap_no)).map(k => '#' + k.hesap_no);
       showModal('Veri Gelmeyen Musteriler', list);
-    }
-    
-    function openCustomerModal(hesapNo) {
-      const c = allData.find(x => x.hesap_no === hesapNo);
-      const k = kayitliData.find(x => x.hesap_no === hesapNo);
-      if (!c && !k) return;
-      
-      const varlik = c ? parseFloat(c.varlik) || 0 : 0;
-      const bugunKar = c ? parseFloat(c.bugun_kar) || 0 : 0;
-      const bugunPct = c ? parseFloat(c.bugun_yuzde) || 0 : 0;
-      const acik = c ? c.acik_pozisyon || 0 : 0;
-      const kapali = c ? c.kapali_pozisyon || 0 : 0;
-      const sonGuncelleme = c ? new Date(c.son_guncelleme).toLocaleString('tr-TR') : '-';
-      const isim = c ? c.isim : '-';
-      
-      const hakedis = k ? parseFloat(k.hakedis_miktari) || 0 : 0;
-      const komisyonOrani = k ? k.komisyon_orani : 25;
-      const paraBirimi = k ? k.para_birimi : 'TL';
-      const esDost = k ? k.es_dost : false;
-      const aktif = k ? k.aktif !== false : true;
-      
-      const komisyon = c && k ? calcKomisyon({...c, ...k}) : 0;
-      
-      document.getElementById('customerModalTitle').textContent = isim + ' (#' + hesapNo + ')';
-      document.getElementById('customerModalContent').innerHTML = 
-        '<div style="background:#f8f9fa;padding:12px;border-radius:8px;margin-bottom:15px">' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.85rem">' +
-            '<div><strong>Varlik:</strong> ' + formatMoney(varlik) + ' TL</div>' +
-            '<div><strong>Bugun:</strong> <span class="' + (bugunKar >= 0 ? 'positive' : 'negative') + '">' + (bugunKar >= 0 ? '+' : '') + formatMoney(bugunKar) + ' TL</span></div>' +
-            '<div><strong>Bugun %:</strong> <span class="' + (bugunPct >= 0 ? 'positive' : 'negative') + '">' + (bugunPct >= 0 ? '+' : '') + bugunPct.toFixed(2) + '%</span></div>' +
-            '<div><strong>Komisyon:</strong> <span class="' + (komisyon >= 0 ? 'positive' : 'negative') + '">' + (komisyon >= 0 ? '+' : '') + formatMoney(komisyon) + ' TL</span></div>' +
-            '<div><strong>Acik/Kapali:</strong> ' + acik + ' / ' + kapali + '</div>' +
-            '<div><strong>Son:</strong> ' + sonGuncelleme + '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="form-group">' +
-          '<label>Hakedis Miktari (' + paraBirimi + ')</label>' +
-          '<input type="number" id="editHakedis" value="' + hakedis + '">' +
-        '</div>' +
-        '<div class="form-group">' +
-          '<label>Komisyon Orani (%)</label>' +
-          '<select id="editKomisyon">' +
-            '<option value="20"' + (komisyonOrani == 20 ? ' selected' : '') + '>%20</option>' +
-            '<option value="25"' + (komisyonOrani == 25 ? ' selected' : '') + '>%25</option>' +
-            '<option value="30"' + (komisyonOrani == 30 ? ' selected' : '') + '>%30</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="form-group">' +
-          '<label>Para Birimi</label>' +
-          '<select id="editParaBirimi">' +
-            '<option value="TL"' + (paraBirimi == 'TL' ? ' selected' : '') + '>TL</option>' +
-            '<option value="USD"' + (paraBirimi == 'USD' ? ' selected' : '') + '>USD</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="form-group">' +
-          '<label><input type="checkbox" id="editEsDost"' + (esDost ? ' checked' : '') + '> Es-Dost (Komisyonsuz)</label>' +
-        '</div>' +
-        '<div class="form-group">' +
-          '<label><input type="checkbox" id="editAktif"' + (aktif ? ' checked' : '') + '> Aktif</label>' +
-        '</div>' +
-        '<button class="form-btn" onclick="saveCustomer(\'' + hesapNo + '\')">Kaydet</button>';
-      
-      document.getElementById('customerModal').classList.add('show');
-    }
-    
-    function closeCustomerModal() {
-      document.getElementById('customerModal').classList.remove('show');
-    }
-    
-    async function saveCustomer(hesapNo) {
-      const data = {
-        hakedis_miktari: document.getElementById('editHakedis').value,
-        komisyon_orani: document.getElementById('editKomisyon').value,
-        para_birimi: document.getElementById('editParaBirimi').value,
-        es_dost: document.getElementById('editEsDost').checked,
-        aktif: document.getElementById('editAktif').checked
-      };
-      
-      const res = await fetch('/api/kayit/' + hesapNo, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-      });
-      
-      if (res.ok) {
-        alert('Kaydedildi!');
-        closeCustomerModal();
-        loadData();
-      } else {
-        alert('Hata!');
-      }
     }
     
     loadData();
