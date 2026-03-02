@@ -864,6 +864,18 @@ function getCustomersPage() {
       return diff < 65;
     }
 
+    function calcKomisyon(c) {
+      if (!c.baslangic_parasi || c.es_dost) return 0;
+      const varlik = parseFloat(c.varlik) || 0;
+      const baslangic = parseFloat(c.baslangic_parasi) || 0;
+      const oran = (parseFloat(c.komisyon_orani) || 0) / 100;
+      if (c.para_birimi === 'USD') {
+        const varlikUSD = varlik / DOLAR_KURU;
+        return (varlikUSD - baslangic) * oran * DOLAR_KURU;
+      }
+      return (varlik - baslangic) * oran;
+    }
+
     function setFilter(filter, btn) {
       currentFilter = filter;
       document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
