@@ -495,16 +495,16 @@ function getMainPage() {
     }
     
     function calcKomisyon(c) {
-      if (!c.hakedis_miktari || c.es_dost) return 0;
+      if (!c.baslangic_parasi || c.es_dost) return 0;
       const varlik = parseFloat(c.varlik) || 0;
-      const hakedis = parseFloat(c.hakedis_miktari) || 0;
+      const baslangic = parseFloat(c.baslangic_parasi) || 0;
       const oran = (parseFloat(c.komisyon_orani) || 0) / 100;
       if (c.para_birimi === 'USD') {
         const varlikUSD = varlik / DOLAR_KURU;
-        const fark = varlikUSD - hakedis;
-        return fark * oran * DOLAR_KURU;
+        const baslangicUSD = baslangic;
+        return (varlikUSD - baslangicUSD) * oran * DOLAR_KURU;
       }
-      return (varlik - hakedis) * oran;
+      return (varlik - baslangic) * oran;
     }
     
     function showModal(title, items) {
@@ -530,7 +530,7 @@ function getMainPage() {
       document.getElementById('customerListSettings').innerHTML = kayitliData.map(k => 
         '<div style="padding:8px;border-bottom:1px solid #eee;font-size:0.8rem">' +
         '<strong>#' + k.hesap_no + '</strong> - ' + (k.es_dost ? 'Es-Dost' : '%' + k.komisyon_orani + ' ' + k.para_birimi) +
-        '<br><small>Hakedis: ' + formatMoney(k.hakedis_miktari) + (k.para_birimi === 'USD' ? ' USD' : ' TL') + '</small>' +
+        '<br><small>Baslangic: ' + formatMoney(k.baslangic_parasi) + (k.para_birimi === 'USD' ? ' USD' : ' TL') + '</small>' +
         '</div>'
       ).join('');
     }
@@ -539,7 +539,7 @@ function getMainPage() {
       const data = {
         hesap_no: document.getElementById('newHesapNo').value,
         baslangic_parasi: document.getElementById('newBaslangic').value,
-        hakedis_miktari: document.getElementById('newHakedis').value || document.getElementById('newBaslangic').value,
+        hakedis_miktari: document.getElementById('newBaslangic').value,
         komisyon_orani: document.getElementById('newKomisyon').value,
         para_birimi: document.getElementById('newParaBirimi').value,
         es_dost: document.getElementById('newEsDost').checked
@@ -711,6 +711,7 @@ function getCustomersPage() {
     .filter-btn.active{background:#1a73e8;color:#fff;border-color:#1a73e8}
     .count-badge{display:inline-block;background:#1a73e8;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.65rem;margin-left:4px}
     
+    /* Edit Modal */
     .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:200;align-items:flex-end;justify-content:center}
     .modal.show{display:flex}
     .modal-sheet{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:92vh;overflow:auto;padding:20px;animation:slideUp 0.2s ease}
@@ -736,6 +737,7 @@ function getCustomersPage() {
     .btn-primary:hover{background:#1557b0}
     .btn-secondary{background:#f1f5f9;color:#374151}
     .btn-secondary:hover{background:#e2e8f0}
+    .btn-danger{background:#fee2e2;color:#991b1b}
     .hakedis-hint{font-size:0.72rem;color:#1a73e8;margin-top:4px;background:#eff6ff;padding:6px 8px;border-radius:6px}
     .no-data{text-align:center;padding:40px 20px;color:#94a3b8}
   </style>
@@ -763,12 +765,14 @@ function getCustomersPage() {
     <div class="no-data">Yukleniyor...</div>
   </div>
 
+  <!-- Edit Modal -->
   <div class="modal" id="editModal" onclick="handleModalBackdrop(event)">
     <div class="modal-sheet" id="editSheet">
       <div class="modal-handle"></div>
       <div class="modal-title" id="editTitle">Musteri Duzenle</div>
       <div class="modal-subtitle" id="editSubtitle"></div>
 
+      <!-- Canli veriler (salt okunur) -->
       <div class="section-title">📊 Canli Veriler (MQL)</div>
       <div class="info-row">
         <span class="info-label">Son Varlik</span>
@@ -791,6 +795,7 @@ function getCustomersPage() {
         <span class="info-value" id="infoSonGun">-</span>
       </div>
 
+      <!-- Duzenlenebilir alanlar -->
       <div class="section-title">✏️ Kayit Bilgileri (Duzenlenebilir)</div>
       
       <input type="hidden" id="editHesapNo">
@@ -809,11 +814,7 @@ function getCustomersPage() {
         </div>
       </div>
 
-      <div class="form-group">
-        <label>Hakedis Miktari</label>
-        <input type="number" id="editHakedis" placeholder="0">
-        <div class="hakedis-hint" id="hakedisHint">💡 Para cekimi sonrasi baslangic parasini dusurerek guncelleyin. Komisyon bu deger uzerinden hesaplanir.</div>
-      </div>
+
 
       <div class="form-group">
         <label>Komisyon Orani (%)</label>
@@ -857,22 +858,10 @@ function getCustomersPage() {
     }
 
     function isActive(lastUpdate) {
-      if (!MARKET_OPEN) return null;
+      if (!MARKET_OPEN) return null; // null = piyasa kapali
       if (!lastUpdate) return false;
       const diff = (new Date() - new Date(lastUpdate)) / 1000 / 60;
       return diff < 65;
-    }
-
-    function calcKomisyon(c) {
-      if (!c.hakedis_miktari || c.es_dost) return 0;
-      const varlik = parseFloat(c.varlik) || 0;
-      const hakedis = parseFloat(c.hakedis_miktari) || 0;
-      const oran = (parseFloat(c.komisyon_orani) || 0) / 100;
-      if (c.para_birimi === 'USD') {
-        const varlikUSD = varlik / DOLAR_KURU;
-        return (varlikUSD - hakedis) * oran * DOLAR_KURU;
-      }
-      return (varlik - hakedis) * oran;
     }
 
     function setFilter(filter, btn) {
@@ -882,28 +871,40 @@ function getCustomersPage() {
       renderCards();
     }
 
-    function filterCustomers() { renderCards(); }
+    function filterCustomers() {
+      renderCards();
+    }
 
     function getFilteredData() {
       const search = document.getElementById('searchInput').value.toLowerCase();
+      const kayitliIDs = kayitliCustomers.map(k => k.hesap_no);
       
+      let data = [...allCustomers];
+      
+      // Kayitsizleri de ekle
       if (currentFilter === 'kayitsiz') {
+        // Sadece kayitlilarda olup musterilerde olmayanlar
         const gelenlIDs = allCustomers.map(c => c.hesap_no);
         const kayitsizlar = kayitliCustomers.filter(k => !gelenlIDs.includes(k.hesap_no));
-        return kayitsizlar.filter(k => !search || k.hesap_no.toLowerCase().includes(search));
+        return kayitsizlar.filter(k => {
+          if (!search) return true;
+          return k.hesap_no.toLowerCase().includes(search);
+        });
       }
 
-      let data = [...allCustomers];
+      // Filtrele
       if (currentFilter === 'active') data = data.filter(c => isActive(c.son_guncelleme) === true);
       else if (currentFilter === 'inactive') data = data.filter(c => isActive(c.son_guncelleme) === false);
       else if (currentFilter === 'esdost') data = data.filter(c => c.es_dost);
 
+      // Arama
       if (search) {
         data = data.filter(c => 
           (c.isim || '').toLowerCase().includes(search) ||
           c.hesap_no.toLowerCase().includes(search)
         );
       }
+
       return data;
     }
 
@@ -938,6 +939,7 @@ function getCustomersPage() {
         else if (active === false) { cardClass += ' inactive'; statusText = 'Pasif'; }
         else { cardClass += ' neutral'; statusText = 'Piyasa Kapali'; }
 
+        // Kayitsiz kart (sadece kayit var, canli veri yok)
         if (!c.varlik && c.baslangic_parasi) {
           return '<div class="' + cardClass + '" onclick="openEditModal(' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">' +
             '<div class="card-header">' +
@@ -964,7 +966,7 @@ function getCustomersPage() {
             '<div class="card-stat"><div class="card-stat-value ' + (komisyon >= 0 ? 'positive' : 'negative') + '">' + (c.es_dost ? '-' : formatMoney(komisyon)) + '</div><div class="card-stat-label">Komisyon</div></div>' +
           '</div>' +
           '<div class="card-footer">' +
-            '<span>Hakedis: ' + formatMoney(c.hakedis_miktari) + ' ' + (c.para_birimi||'TL') + '</span>' +
+            '<span>Baslangic: ' + formatMoney(c.baslangic_parasi) + ' ' + (c.para_birimi||'TL') + '</span>' +
             '<span>%' + bugunPct.toFixed(2) + ' bugun</span>' +
           '</div>' +
         '</div>';
@@ -988,7 +990,6 @@ function getCustomersPage() {
         new Date(c.son_guncelleme).toLocaleString('tr-TR') : 'Veri gelmedi';
 
       document.getElementById('editBaslangic').value = c.baslangic_parasi || '';
-      document.getElementById('editHakedis').value = c.hakedis_miktari || '';
       document.getElementById('editKomisyon').value = c.komisyon_orani || 25;
       document.getElementById('editParaBirimi').value = c.para_birimi || 'TL';
       document.getElementById('editEsDost').checked = !!c.es_dost;
@@ -996,12 +997,12 @@ function getCustomersPage() {
 
       updateKomisyonBilgi(c);
 
-      document.getElementById('editHakedis').oninput = function() {
-        const temp = {...c, hakedis_miktari: this.value, komisyon_orani: document.getElementById('editKomisyon').value, para_birimi: document.getElementById('editParaBirimi').value};
+      document.getElementById('editBaslangic').oninput = function() {
+        const temp = {...c, baslangic_parasi: this.value, komisyon_orani: document.getElementById('editKomisyon').value, para_birimi: document.getElementById('editParaBirimi').value};
         updateKomisyonBilgi(temp);
       };
       document.getElementById('editKomisyon').onchange = function() {
-        const temp = {...c, hakedis_miktari: document.getElementById('editHakedis').value, komisyon_orani: this.value, para_birimi: document.getElementById('editParaBirimi').value};
+        const temp = {...c, baslangic_parasi: document.getElementById('editBaslangic').value, komisyon_orani: this.value, para_birimi: document.getElementById('editParaBirimi').value};
         updateKomisyonBilgi(temp);
       };
 
@@ -1012,21 +1013,21 @@ function getCustomersPage() {
       const esDost = document.getElementById('editEsDost') ? document.getElementById('editEsDost').checked : c.es_dost;
       if (esDost) { document.getElementById('komisyonBilgi').textContent = ''; return; }
       const varlik = parseFloat(c.varlik) || 0;
-      const hakedis = parseFloat(c.hakedis_miktari) || 0;
+      const baslangic = parseFloat(c.baslangic_parasi) || 0;
       const oran = (parseFloat(c.komisyon_orani) || 0) / 100;
       let komisyon = 0, fark = 0;
       if (c.para_birimi === 'USD') {
         const varlikUSD = varlik / DOLAR_KURU;
-        fark = varlikUSD - hakedis;
+        fark = varlikUSD - baslangic;
         komisyon = fark * oran * DOLAR_KURU;
       } else {
-        fark = varlik - hakedis;
+        fark = varlik - baslangic;
         komisyon = fark * oran;
       }
       if (varlik > 0) {
         const sign = fark >= 0 ? '+' : '';
         document.getElementById('komisyonBilgi').innerHTML = 
-          '💰 Mevcut Durum: Varlik <strong>' + formatMoney(varlik) + '</strong> - Hakedis <strong>' + formatMoney(hakedis) + '</strong> = <strong>' + sign + formatMoney(fark) + '</strong>' +
+          '💰 Varlik <strong>' + formatMoney(varlik) + '</strong> - Baslangic <strong>' + formatMoney(baslangic) + '</strong> = <strong>' + sign + formatMoney(fark) + '</strong>' +
           '<br>📊 Komisyon (%' + (parseFloat(c.komisyon_orani)||0) + '): <strong>' + (komisyon>=0?'+':'') + formatMoney(komisyon) + ' TL</strong>';
       } else {
         document.getElementById('komisyonBilgi').innerHTML = 'ℹ️ Canli veri geldiginde komisyon hesaplanacak.';
@@ -1045,7 +1046,7 @@ function getCustomersPage() {
       const hesap_no = document.getElementById('editHesapNo').value;
       const data = {
         baslangic_parasi: parseFloat(document.getElementById('editBaslangic').value) || 0,
-        hakedis_miktari: parseFloat(document.getElementById('editHakedis').value) || 0,
+        hakedis_miktari: parseFloat(document.getElementById('editBaslangic').value) || 0,
         komisyon_orani: parseInt(document.getElementById('editKomisyon').value) || 0,
         para_birimi: document.getElementById('editParaBirimi').value,
         es_dost: document.getElementById('editEsDost').checked,
