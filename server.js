@@ -11,11 +11,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Veritabanı tablosunu oluştur
+// Veritabani tablosunu olustur
 pool.query(`
   CREATE TABLE IF NOT EXISTS musteriler (
     id SERIAL PRIMARY KEY,
-    hesap_no VARCHAR(50),
+    hesap_no VARCHAR(50) UNIQUE,
     isim VARCHAR(100),
     varlik DECIMAL(15,2),
     toplam_yuzde DECIMAL(5,2),
@@ -26,9 +26,9 @@ pool.query(`
     bugun_yuzde DECIMAL(5,2),
     son_guncelleme TIMESTAMP DEFAULT NOW()
   )
-`).catch(console.error);
+`).then(() => console.log('Tablo hazir')).catch(console.error);
 
-// MQL'den veri al
+// MQL'den veri al (POST)
 app.post('/api/veri', async (req, res) => {
   try {
     const { hesap_no, isim, varlik, toplam_yuzde, bugun_kar, acik, kapali, buyukluk, bugun_yuzde } = req.body;
@@ -41,20 +41,31 @@ app.post('/api/veri', async (req, res) => {
         acik_pozisyon = $6, kapali_pozisyon = $7, buyukluk = $8, bugun_yuzde = $9, son_guncelleme = NOW()
     `, [hesap_no, isim, varlik, toplam_yuzde, bugun_kar, acik, kapali, buyukluk, bugun_yuzde]);
     
+    console.log('Veri alindi:', hesap_no, isim);
     res.json({ ok: true });
   } catch (err) {
-    console.error(err);
+    console.error('Veri kayit hatasi:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Tüm müşterileri getir
+// Tum musterileri getir
 app.get('/api/musteriler', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM musteriler ORDER BY varlik DESC');
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Test endpoint
+app.get('/api/test', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true, message: 'Veritabani baglantisi basarili' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -66,7 +77,7 @@ app.get('/', (req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Müşteri Paneli</title>
+  <title>Musteri Paneli</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; }
@@ -90,43 +101,53 @@ app.get('/', (req, res) => {
     .refresh-btn { position: fixed; bottom: 20px; right: 20px; background: #1a73e8; color: white; border: none; padding: 15px 20px; border-radius: 50px; font-size: 1rem; cursor: pointer; box-shadow: 0 4px 15px rgba(26,115,232,0.4); }
     .loading { text-align: center; padding: 50px; color: #666; }
     .last-update { text-align: center; padding: 10px; font-size: 0.8rem; color: #666; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+    .status-online { background: #22c55e; }
+    .status-offline { background: #ef4444; }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>Müşteri Takip Paneli</h1>
+    <h1>Musteri Takip Paneli</h1>
   </div>
   
   <div class="stats" id="stats">
     <div class="stat-card">
       <div class="stat-value" id="totalCustomers">-</div>
-      <div class="stat-label">Toplam Müşteri</div>
+      <div class="stat-label">Toplam Musteri</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="totalBalance">-</div>
-      <div class="stat-label">Toplam Varlık</div>
+      <div class="stat-label">Toplam Varlik</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="todayProfit">-</div>
-      <div class="stat-label">Bugünkü Kar</div>
+      <div class="stat-label">Bugunun Kari</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="activeCount">-</div>
-      <div class="stat-label">Açık Pozisyon</div>
+      <div class="stat-label">Acik Pozisyon</div>
     </div>
   </div>
   
-  <div class="last-update">Son güncelleme: <span id="lastUpdate">-</span></div>
+  <div class="last-update">Son guncelleme: <span id="lastUpdate">-</span></div>
   
   <div class="container" id="customers">
-    <div class="loading">Yükleniyor...</div>
+    <div class="loading">Yukleniyor...</div>
   </div>
   
   <button class="refresh-btn" onclick="loadData()">Yenile</button>
   
   <script>
     function formatMoney(n) {
-      return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(n || 0);
+      if (n === null || n === undefined) return '0 TL';
+      return new Intl.NumberFormat('tr-TR').format(Math.round(n)) + ' TL';
+    }
+    
+    function getStatusClass(lastUpdate) {
+      if (!lastUpdate) return 'status-offline';
+      const diff = (new Date() - new Date(lastUpdate)) / 1000 / 60;
+      return diff < 70 ? 'status-online' : 'status-offline';
     }
     
     async function loadData() {
@@ -134,49 +155,50 @@ app.get('/', (req, res) => {
         const res = await fetch('/api/musteriler');
         const data = await res.json();
         
-        // İstatistikler
         document.getElementById('totalCustomers').textContent = data.length;
         document.getElementById('totalBalance').textContent = formatMoney(data.reduce((s, c) => s + parseFloat(c.varlik || 0), 0));
         document.getElementById('todayProfit').textContent = formatMoney(data.reduce((s, c) => s + parseFloat(c.bugun_kar || 0), 0));
         document.getElementById('activeCount').textContent = data.reduce((s, c) => s + parseInt(c.acik_pozisyon || 0), 0);
         document.getElementById('lastUpdate').textContent = new Date().toLocaleString('tr-TR');
         
-        // Müşteri listesi
         const container = document.getElementById('customers');
         if (data.length === 0) {
-          container.innerHTML = '<div class="loading">Henüz veri yok. MQL bağlantısı bekleniyor...</div>';
+          container.innerHTML = '<div class="loading">Henuz veri yok. MQL baglantisi bekleniyor...</div>';
           return;
         }
         
-        container.innerHTML = data.map(c => \`
+        container.innerHTML = data.map(c => {
+          const statusClass = getStatusClass(c.son_guncelleme);
+          const bugunKar = parseFloat(c.bugun_kar) || 0;
+          return \`
           <div class="customer-card">
             <div class="customer-header">
               <div>
-                <div class="customer-name">\${c.isim || 'İsimsiz'}</div>
+                <div class="customer-name"><span class="status-dot \${statusClass}"></span>\${c.isim || 'Isimsiz'}</div>
                 <div class="customer-id">#\${c.hesap_no}</div>
               </div>
               <div class="customer-stat-value">\${formatMoney(c.varlik)}</div>
             </div>
             <div class="customer-stats">
               <div class="customer-stat">
-                <div class="customer-stat-value \${parseFloat(c.bugun_kar) >= 0 ? 'positive' : 'negative'}">\${formatMoney(c.bugun_kar)}</div>
-                <div class="customer-stat-label">Bugün</div>
+                <div class="customer-stat-value \${bugunKar >= 0 ? 'positive' : 'negative'}">\${formatMoney(bugunKar)}</div>
+                <div class="customer-stat-label">Bugun</div>
               </div>
               <div class="customer-stat">
-                <div class="customer-stat-value">\${c.toplam_yuzde}%</div>
+                <div class="customer-stat-value">\${c.toplam_yuzde || 0}%</div>
                 <div class="customer-stat-label">Toplam</div>
               </div>
               <div class="customer-stat">
-                <div class="customer-stat-value">\${c.acik_pozisyon}</div>
-                <div class="customer-stat-label">Açık</div>
+                <div class="customer-stat-value">\${c.acik_pozisyon || 0}</div>
+                <div class="customer-stat-label">Acik</div>
               </div>
               <div class="customer-stat">
-                <div class="customer-stat-value">\${c.kapali_pozisyon}</div>
-                <div class="customer-stat-label">Kapalı</div>
+                <div class="customer-stat-value">\${c.kapali_pozisyon || 0}</div>
+                <div class="customer-stat-label">Kapali</div>
               </div>
             </div>
           </div>
-        \`).join('');
+        \`}).join('');
       } catch (err) {
         console.error(err);
       }
