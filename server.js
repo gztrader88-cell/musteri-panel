@@ -711,7 +711,6 @@ function getCustomersPage() {
     .filter-btn.active{background:#1a73e8;color:#fff;border-color:#1a73e8}
     .count-badge{display:inline-block;background:#1a73e8;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.65rem;margin-left:4px}
     
-    /* Edit Modal */
     .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:200;align-items:flex-end;justify-content:center}
     .modal.show{display:flex}
     .modal-sheet{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:92vh;overflow:auto;padding:20px;animation:slideUp 0.2s ease}
@@ -737,7 +736,6 @@ function getCustomersPage() {
     .btn-primary:hover{background:#1557b0}
     .btn-secondary{background:#f1f5f9;color:#374151}
     .btn-secondary:hover{background:#e2e8f0}
-    .btn-danger{background:#fee2e2;color:#991b1b}
     .hakedis-hint{font-size:0.72rem;color:#1a73e8;margin-top:4px;background:#eff6ff;padding:6px 8px;border-radius:6px}
     .no-data{text-align:center;padding:40px 20px;color:#94a3b8}
   </style>
@@ -765,14 +763,12 @@ function getCustomersPage() {
     <div class="no-data">Yukleniyor...</div>
   </div>
 
-  <!-- Edit Modal -->
   <div class="modal" id="editModal" onclick="handleModalBackdrop(event)">
     <div class="modal-sheet" id="editSheet">
       <div class="modal-handle"></div>
       <div class="modal-title" id="editTitle">Musteri Duzenle</div>
       <div class="modal-subtitle" id="editSubtitle"></div>
 
-      <!-- Canli veriler (salt okunur) -->
       <div class="section-title">📊 Canli Veriler (MQL)</div>
       <div class="info-row">
         <span class="info-label">Son Varlik</span>
@@ -795,7 +791,6 @@ function getCustomersPage() {
         <span class="info-value" id="infoSonGun">-</span>
       </div>
 
-      <!-- Duzenlenebilir alanlar -->
       <div class="section-title">✏️ Kayit Bilgileri (Duzenlenebilir)</div>
       
       <input type="hidden" id="editHesapNo">
@@ -815,9 +810,9 @@ function getCustomersPage() {
       </div>
 
       <div class="form-group">
-        <label>Hakedis Miktari (Son Bakiye)</label>
+        <label>Hakedis Miktari</label>
         <input type="number" id="editHakedis" placeholder="0">
-        <div class="hakedis-hint" id="hakedisHint">💡 Hak edis sonrasi veya para cekiminden sonra buradaki degeri guncelleyin. Komisyon bu deger uzerinden hesaplanir.</div>
+        <div class="hakedis-hint" id="hakedisHint">💡 Para cekimi sonrasi baslangic parasini dusurerek guncelleyin. Komisyon bu deger uzerinden hesaplanir.</div>
       </div>
 
       <div class="form-group">
@@ -862,7 +857,7 @@ function getCustomersPage() {
     }
 
     function isActive(lastUpdate) {
-      if (!MARKET_OPEN) return null; // null = piyasa kapali
+      if (!MARKET_OPEN) return null;
       if (!lastUpdate) return false;
       const diff = (new Date() - new Date(lastUpdate)) / 1000 / 60;
       return diff < 65;
@@ -887,40 +882,28 @@ function getCustomersPage() {
       renderCards();
     }
 
-    function filterCustomers() {
-      renderCards();
-    }
+    function filterCustomers() { renderCards(); }
 
     function getFilteredData() {
       const search = document.getElementById('searchInput').value.toLowerCase();
-      const kayitliIDs = kayitliCustomers.map(k => k.hesap_no);
       
-      let data = [...allCustomers];
-      
-      // Kayitsizleri de ekle
       if (currentFilter === 'kayitsiz') {
-        // Sadece kayitlilarda olup musterilerde olmayanlar
         const gelenlIDs = allCustomers.map(c => c.hesap_no);
         const kayitsizlar = kayitliCustomers.filter(k => !gelenlIDs.includes(k.hesap_no));
-        return kayitsizlar.filter(k => {
-          if (!search) return true;
-          return k.hesap_no.toLowerCase().includes(search);
-        });
+        return kayitsizlar.filter(k => !search || k.hesap_no.toLowerCase().includes(search));
       }
 
-      // Filtrele
+      let data = [...allCustomers];
       if (currentFilter === 'active') data = data.filter(c => isActive(c.son_guncelleme) === true);
       else if (currentFilter === 'inactive') data = data.filter(c => isActive(c.son_guncelleme) === false);
       else if (currentFilter === 'esdost') data = data.filter(c => c.es_dost);
 
-      // Arama
       if (search) {
         data = data.filter(c => 
           (c.isim || '').toLowerCase().includes(search) ||
           c.hesap_no.toLowerCase().includes(search)
         );
       }
-
       return data;
     }
 
@@ -955,7 +938,6 @@ function getCustomersPage() {
         else if (active === false) { cardClass += ' inactive'; statusText = 'Pasif'; }
         else { cardClass += ' neutral'; statusText = 'Piyasa Kapali'; }
 
-        // Kayitsiz kart (sadece kayit var, canli veri yok)
         if (!c.varlik && c.baslangic_parasi) {
           return '<div class="' + cardClass + '" onclick="openEditModal(' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">' +
             '<div class="card-header">' +
@@ -994,7 +976,6 @@ function getCustomersPage() {
       document.getElementById('editTitle').textContent = c.isim || ('#' + c.hesap_no);
       document.getElementById('editSubtitle').textContent = 'Hesap No: ' + c.hesap_no;
       
-      // Canli veriler
       const bugunKar = parseFloat(c.bugun_kar) || 0;
       const bugunPct = parseFloat(c.bugun_yuzde) || 0;
       document.getElementById('infoVarlik').textContent = c.varlik ? formatMoney(c.varlik) + ' ' + (c.para_birimi||'TL') : 'Veri yok';
@@ -1006,7 +987,6 @@ function getCustomersPage() {
       document.getElementById('infoSonGun').textContent = c.son_guncelleme ? 
         new Date(c.son_guncelleme).toLocaleString('tr-TR') : 'Veri gelmedi';
 
-      // Duzenlenebilir alanlar
       document.getElementById('editBaslangic').value = c.baslangic_parasi || '';
       document.getElementById('editHakedis').value = c.hakedis_miktari || '';
       document.getElementById('editKomisyon').value = c.komisyon_orani || 25;
@@ -1014,10 +994,8 @@ function getCustomersPage() {
       document.getElementById('editEsDost').checked = !!c.es_dost;
       document.getElementById('editAktif').checked = c.aktif !== false;
 
-      // Komisyon bilgisi
       updateKomisyonBilgi(c);
 
-      // Hakedis input degisince komisyonu guncelle
       document.getElementById('editHakedis').oninput = function() {
         const temp = {...c, hakedis_miktari: this.value, komisyon_orani: document.getElementById('editKomisyon').value, para_birimi: document.getElementById('editParaBirimi').value};
         updateKomisyonBilgi(temp);
