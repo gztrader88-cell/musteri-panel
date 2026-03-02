@@ -11,10 +11,13 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// Calisma saatleri
+const MARKET_START = 9.5; // 09:30
+const MARKET_END = 18;    // 18:00
+
 // Tablolari olustur
 async function initDB() {
   try {
-    // Musteri veri tablosu (MQL'den gelen)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS musteriler (
         id SERIAL PRIMARY KEY,
@@ -31,7 +34,6 @@ async function initDB() {
       )
     `);
     
-    // Musteri kayit tablosu (manuel giris)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS musteri_kayit (
         id SERIAL PRIMARY KEY,
@@ -48,7 +50,6 @@ async function initDB() {
     
     console.log('Tablolar hazir');
     
-    // Mevcut musterileri ekle (sadece bossa)
     const check = await pool.query('SELECT COUNT(*) FROM musteri_kayit');
     if (parseInt(check.rows[0].count) === 0) {
       await insertInitialCustomers();
@@ -58,7 +59,6 @@ async function initDB() {
   }
 }
 
-// 73 musteriyi ekle
 async function insertInitialCustomers() {
   const customers = [
     ['7197904', 38467, 38467, 30, 'USD', false],
@@ -149,14 +149,55 @@ async function insertInitialCustomers() {
 
 initDB();
 
-// Dolar kuru (basit API)
+// Dolar kuru - webden cek
+let cachedKur = { value: 43, timestamp: 0 };
+
 async function getDolarKuru() {
-  try {
-    // Varsayilan kur - gercek API eklenebilir
-    return 38.5;
-  } catch (e) {
-    return 38.5;
+  const now = Date.now();
+  // 10 dakikada bir guncelle
+  if (now - cachedKur.timestamp < 600000 && cachedKur.value) {
+    return cachedKur.value;
   }
+  
+  try {
+    const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+    const data = await response.json();
+    if (data && data.rates && data.rates.TRY) {
+      cachedKur = { value: data.rates.TRY, timestamp: now };
+      console.log('Kur guncellendi:', cachedKur.value);
+      return cachedKur.value;
+    }
+  } catch (e) {
+    console.log('Kur API hatasi, alternatif deneniyor...');
+  }
+  
+  try {
+    const response2 = await fetch('https://open.er-api.com/v6/latest/USD');
+    const data2 = await response2.json();
+    if (data2 && data2.rates && data2.rates.TRY) {
+      cachedKur = { value: data2.rates.TRY, timestamp: now };
+      console.log('Kur guncellendi (alt):', cachedKur.value);
+      return cachedKur.value;
+    }
+  } catch (e2) {
+    console.log('Alternatif API de basarisiz');
+  }
+  
+  return cachedKur.value || 43;
+}
+
+// Piyasa acik mi kontrol
+function isMarketOpen() {
+  const now = new Date();
+  const turkeyTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
+  const day = turkeyTime.getDay();
+  const hour = turkeyTime.getHours() + turkeyTime.getMinutes() / 60;
+  
+  // Hafta sonu kapali
+  if (day === 0 || day === 6) return false;
+  
+  // 09:30 - 18:00 arasi acik
+  return hour >= MARKET_START && hour < MARKET_END;
 }
 
 // MQL'den veri al
@@ -178,7 +219,6 @@ app.post('/api/veri', async (req, res) => {
   }
 });
 
-// Tum verileri getir (birlesik)
 app.get('/api/musteriler', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -193,7 +233,6 @@ app.get('/api/musteriler', async (req, res) => {
   }
 });
 
-// Kayitli musteriler (liste)
 app.get('/api/kayitli', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM musteri_kayit ORDER BY created_at DESC');
@@ -203,7 +242,6 @@ app.get('/api/kayitli', async (req, res) => {
   }
 });
 
-// Yeni musteri ekle
 app.post('/api/kayit', async (req, res) => {
   try {
     const { hesap_no, baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost } = req.body;
@@ -217,7 +255,6 @@ app.post('/api/kayit', async (req, res) => {
   }
 });
 
-// Musteri guncelle
 app.put('/api/kayit/:hesap_no', async (req, res) => {
   try {
     const { hesap_no } = req.params;
@@ -232,13 +269,12 @@ app.put('/api/kayit/:hesap_no', async (req, res) => {
   }
 });
 
-// Dolar kuru endpoint
 app.get('/api/kur', async (req, res) => {
   const kur = await getDolarKuru();
-  res.json({ kur });
+  const marketOpen = isMarketOpen();
+  res.json({ kur, marketOpen });
 });
 
-// Ana sayfa
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -252,6 +288,9 @@ app.get('/', (req, res) => {
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;font-size:14px}
     .header{background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;padding:15px;text-align:center;position:relative}
     .header h1{font-size:1.2rem}
+    .market-status{font-size:0.7rem;margin-top:5px;opacity:0.9}
+    .market-open{color:#90EE90}
+    .market-closed{color:#ffcccb}
     .settings-btn{position:absolute;right:15px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.2);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer}
     .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px;padding:10px}
     .stat-card{background:#fff;padding:10px;border-radius:8px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
@@ -262,6 +301,7 @@ app.get('/', (req, res) => {
     .alert-btn.warning{background:#fef3c7;color:#92400e}
     .alert-btn.danger{background:#fee2e2;color:#991b1b}
     .alert-btn.success{background:#d1fae5;color:#065f46}
+    .alert-btn.info{background:#e0f2fe;color:#0369a1}
     .container{padding:10px}
     .table-wrapper{background:#fff;border-radius:8px;overflow-x:auto;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
     table{width:100%;border-collapse:collapse;font-size:0.75rem}
@@ -271,6 +311,7 @@ app.get('/', (req, res) => {
     .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
     .status-online{background:#22c55e}
     .status-offline{background:#ef4444}
+    .status-neutral{background:#9ca3af}
     .positive{color:#0d9488}
     .negative{color:#dc2626}
     .highlight{background:#fef3c7!important}
@@ -297,6 +338,7 @@ app.get('/', (req, res) => {
 <body>
   <div class="header">
     <h1>Musteri Takip Paneli</h1>
+    <div class="market-status" id="marketStatus">Piyasa durumu yukleniyor...</div>
     <button class="settings-btn" onclick="showSettings()">⚙️</button>
   </div>
   
@@ -353,7 +395,6 @@ app.get('/', (req, res) => {
   
   <button class="refresh-btn" onclick="loadData()">↻</button>
   
-  <!-- Modal: Uyarilar -->
   <div class="modal" id="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -364,7 +405,6 @@ app.get('/', (req, res) => {
     </div>
   </div>
   
-  <!-- Modal: Ayarlar -->
   <div class="modal" id="settingsModal">
     <div class="modal-content" style="width:350px">
       <div class="modal-header">
@@ -414,10 +454,21 @@ app.get('/', (req, res) => {
     </div>
   </div>
   
+  <div class="modal" id="customerModal">
+    <div class="modal-content" style="width:380px">
+      <div class="modal-header">
+        <h3 id="customerModalTitle">Musteri Detay</h3>
+        <button class="modal-close" onclick="closeCustomerModal()">×</button>
+      </div>
+      <div id="customerModalContent"></div>
+    </div>
+  </div>
+  
   <script>
     let allData = [];
     let kayitliData = [];
-    let DOLAR_KURU = 38.5;
+    let DOLAR_KURU = 43;
+    let MARKET_OPEN = true;
     
     function formatMoney(n) {
       if (n === null || n === undefined || isNaN(n)) return '0';
@@ -425,6 +476,9 @@ app.get('/', (req, res) => {
     }
     
     function isActive(lastUpdate) {
+      // Piyasa kapali ise kontrol yapma
+      if (!MARKET_OPEN) return true;
+      
       if (!lastUpdate) return false;
       const diff = (new Date() - new Date(lastUpdate)) / 1000 / 60;
       return diff < 65;
@@ -483,7 +537,7 @@ app.get('/', (req, res) => {
       document.getElementById('customerListSettings').innerHTML = kayitliData.map(k => 
         '<div style="padding:8px;border-bottom:1px solid #eee;font-size:0.8rem">' +
         '<strong>#' + k.hesap_no + '</strong> - ' + (k.es_dost ? 'Es-Dost' : '%' + k.komisyon_orani + ' ' + k.para_birimi) +
-        '<br><small>Hakedis: ' + formatMoney(k.hakedis_miktari) + '</small>' +
+        '<br><small>Hakedis: ' + formatMoney(k.hakedis_miktari) + (k.para_birimi === 'USD' ? ' USD' : ' TL') + '</small>' +
         '</div>'
       ).join('');
     }
@@ -505,16 +559,27 @@ app.get('/', (req, res) => {
     
     async function loadData() {
       try {
-        const [dataRes, kurRes] = await Promise.all([fetch('/api/musteriler'), fetch('/api/kur')]);
+        const [dataRes, kurRes, kayitliRes] = await Promise.all([
+          fetch('/api/musteriler'), 
+          fetch('/api/kur'),
+          fetch('/api/kayitli')
+        ]);
         allData = await dataRes.json();
         const kurData = await kurRes.json();
-        DOLAR_KURU = kurData.kur || 38.5;
-        
-        // Kayitli listesi
-        const kayitliRes = await fetch('/api/kayitli');
         kayitliData = await kayitliRes.json();
-        const kayitliIDs = kayitliData.map(k => k.hesap_no);
         
+        DOLAR_KURU = kurData.kur || 43;
+        MARKET_OPEN = kurData.marketOpen;
+        
+        // Piyasa durumu
+        const marketStatusEl = document.getElementById('marketStatus');
+        if (MARKET_OPEN) {
+          marketStatusEl.innerHTML = '<span class="market-open">● Piyasa Acik</span> | $1 = ' + DOLAR_KURU.toFixed(2) + ' TL';
+        } else {
+          marketStatusEl.innerHTML = '<span class="market-closed">● Piyasa Kapali</span> | $1 = ' + DOLAR_KURU.toFixed(2) + ' TL';
+        }
+        
+        const kayitliIDs = kayitliData.map(k => k.hesap_no);
         const activeCount = allData.filter(c => isActive(c.son_guncelleme)).length;
         const totalBalance = allData.reduce((s, c) => s + (parseFloat(c.varlik) || 0), 0);
         const todayProfit = allData.reduce((s, c) => s + (parseFloat(c.bugun_kar) || 0), 0);
@@ -522,7 +587,7 @@ app.get('/', (req, res) => {
         const totalKomisyon = allData.reduce((s, c) => s + calcKomisyon(c), 0);
         
         document.getElementById('totalCustomers').textContent = allData.length + '/' + kayitliData.filter(k=>k.aktif!==false).length;
-        document.getElementById('activeCustomers').textContent = activeCount;
+        document.getElementById('activeCustomers').textContent = MARKET_OPEN ? activeCount : '-';
         document.getElementById('totalBalance').textContent = formatMoney(totalBalance);
         document.getElementById('todayProfit').textContent = (todayProfit >= 0 ? '+' : '') + formatMoney(todayProfit);
         document.getElementById('todayProfit').className = 'stat-value ' + (todayProfit >= 0 ? 'positive' : 'negative');
@@ -536,20 +601,25 @@ app.get('/', (req, res) => {
         // Uyarilar
         const majPos = getMajorityPosition(allData);
         const posIssues = allData.filter(c => (c.acik_pozisyon || 0) !== majPos);
-        const inactiveList = allData.filter(c => !isActive(c.son_guncelleme));
         const { mean, stdDev } = getStdDev(allData);
         const outliers = allData.filter(c => Math.abs((parseFloat(c.bugun_yuzde) || 0) - mean) > stdDev * 2);
-        
-        // Kayitli olup veri gelmeyenler
         const gelenIDs = allData.map(m => m.hesap_no);
         const gelmeyenler = kayitliData.filter(k => k.aktif !== false && !gelenIDs.includes(k.hesap_no));
         
         let alertsHtml = '';
-        if (gelmeyenler.length > 0) alertsHtml += '<button class="alert-btn danger" onclick="showGelmeyenler()">🚨 Veri Yok: ' + gelmeyenler.length + '</button>';
-        if (inactiveList.length > 0) alertsHtml += '<button class="alert-btn danger" onclick="showInactive()">⚠ Pasif: ' + inactiveList.length + '</button>';
-        if (posIssues.length > 0) alertsHtml += '<button class="alert-btn warning" onclick="showPosIssues()">📊 Poz: ' + posIssues.length + '</button>';
-        if (outliers.length > 0) alertsHtml += '<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: ' + outliers.length + '</button>';
-        if (alertsHtml === '') alertsHtml = '<button class="alert-btn success">✓ Normal</button>';
+        
+        if (MARKET_OPEN) {
+          const inactiveList = allData.filter(c => !isActive(c.son_guncelleme));
+          if (gelmeyenler.length > 0) alertsHtml += '<button class="alert-btn danger" onclick="showGelmeyenler()">🚨 Veri Yok: ' + gelmeyenler.length + '</button>';
+          if (inactiveList.length > 0) alertsHtml += '<button class="alert-btn danger" onclick="showInactive()">⚠ Pasif: ' + inactiveList.length + '</button>';
+          if (posIssues.length > 0) alertsHtml += '<button class="alert-btn warning" onclick="showPosIssues()">📊 Poz: ' + posIssues.length + '</button>';
+          if (outliers.length > 0) alertsHtml += '<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: ' + outliers.length + '</button>';
+          if (alertsHtml === '') alertsHtml = '<button class="alert-btn success">✓ Normal</button>';
+        } else {
+          alertsHtml = '<button class="alert-btn info">🌙 Piyasa Kapali - Kontrol Pasif</button>';
+          if (posIssues.length > 0) alertsHtml += '<button class="alert-btn warning" onclick="showPosIssues()">📊 Poz: ' + posIssues.length + '</button>';
+          if (outliers.length > 0) alertsHtml += '<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: ' + outliers.length + '</button>';
+        }
         document.getElementById('alerts').innerHTML = alertsHtml;
         
         // Tablo
@@ -567,9 +637,13 @@ app.get('/', (req, res) => {
           if (c.es_dost) rowClass = 'es-dost';
           else if (posIssue || isOutlier) rowClass = 'highlight';
           
+          let statusClass = 'status-online';
+          if (!MARKET_OPEN) statusClass = 'status-neutral';
+          else if (!active) statusClass = 'status-offline';
+          
           return '<tr class="' + rowClass + '">' +
-            '<td><span class="status-dot ' + (active ? 'status-online' : 'status-offline') + '"></span></td>' +
-            '<td>' + (c.isim || '-') + '<br><small style="color:#888">#' + c.hesap_no + '</small></td>' +
+            '<td><span class="status-dot ' + statusClass + '"></span></td>' +
+            '<td onclick="openCustomerModal(\'' + c.hesap_no + '\')" style="cursor:pointer">' + (c.isim || '-') + '<br><small style="color:#888">#' + c.hesap_no + '</small></td>' +
             '<td>' + formatMoney(c.varlik) + '</td>' +
             '<td class="' + (bugunKar >= 0 ? 'positive' : 'negative') + '">' + (bugunKar >= 0 ? '+' : '') + formatMoney(bugunKar) + '</td>' +
             '<td class="' + (bugunPct >= 0 ? 'positive' : 'negative') + '">' + (bugunPct >= 0 ? '+' : '') + bugunPct.toFixed(1) + '%</td>' +
@@ -599,6 +673,97 @@ app.get('/', (req, res) => {
       const gelenIDs = allData.map(m => m.hesap_no);
       const list = kayitliData.filter(k => k.aktif !== false && !gelenIDs.includes(k.hesap_no)).map(k => '#' + k.hesap_no);
       showModal('Veri Gelmeyen Musteriler', list);
+    }
+    
+    function openCustomerModal(hesapNo) {
+      const c = allData.find(x => x.hesap_no === hesapNo);
+      const k = kayitliData.find(x => x.hesap_no === hesapNo);
+      if (!c && !k) return;
+      
+      const varlik = c ? parseFloat(c.varlik) || 0 : 0;
+      const bugunKar = c ? parseFloat(c.bugun_kar) || 0 : 0;
+      const bugunPct = c ? parseFloat(c.bugun_yuzde) || 0 : 0;
+      const acik = c ? c.acik_pozisyon || 0 : 0;
+      const kapali = c ? c.kapali_pozisyon || 0 : 0;
+      const sonGuncelleme = c ? new Date(c.son_guncelleme).toLocaleString('tr-TR') : '-';
+      const isim = c ? c.isim : '-';
+      
+      const hakedis = k ? parseFloat(k.hakedis_miktari) || 0 : 0;
+      const komisyonOrani = k ? k.komisyon_orani : 25;
+      const paraBirimi = k ? k.para_birimi : 'TL';
+      const esDost = k ? k.es_dost : false;
+      const aktif = k ? k.aktif !== false : true;
+      
+      const komisyon = c && k ? calcKomisyon({...c, ...k}) : 0;
+      
+      document.getElementById('customerModalTitle').textContent = isim + ' (#' + hesapNo + ')';
+      document.getElementById('customerModalContent').innerHTML = 
+        '<div style="background:#f8f9fa;padding:12px;border-radius:8px;margin-bottom:15px">' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.85rem">' +
+            '<div><strong>Varlik:</strong> ' + formatMoney(varlik) + ' TL</div>' +
+            '<div><strong>Bugun:</strong> <span class="' + (bugunKar >= 0 ? 'positive' : 'negative') + '">' + (bugunKar >= 0 ? '+' : '') + formatMoney(bugunKar) + ' TL</span></div>' +
+            '<div><strong>Bugun %:</strong> <span class="' + (bugunPct >= 0 ? 'positive' : 'negative') + '">' + (bugunPct >= 0 ? '+' : '') + bugunPct.toFixed(2) + '%</span></div>' +
+            '<div><strong>Komisyon:</strong> <span class="' + (komisyon >= 0 ? 'positive' : 'negative') + '">' + (komisyon >= 0 ? '+' : '') + formatMoney(komisyon) + ' TL</span></div>' +
+            '<div><strong>Acik/Kapali:</strong> ' + acik + ' / ' + kapali + '</div>' +
+            '<div><strong>Son:</strong> ' + sonGuncelleme + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label>Hakedis Miktari (' + paraBirimi + ')</label>' +
+          '<input type="number" id="editHakedis" value="' + hakedis + '">' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label>Komisyon Orani (%)</label>' +
+          '<select id="editKomisyon">' +
+            '<option value="20"' + (komisyonOrani == 20 ? ' selected' : '') + '>%20</option>' +
+            '<option value="25"' + (komisyonOrani == 25 ? ' selected' : '') + '>%25</option>' +
+            '<option value="30"' + (komisyonOrani == 30 ? ' selected' : '') + '>%30</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label>Para Birimi</label>' +
+          '<select id="editParaBirimi">' +
+            '<option value="TL"' + (paraBirimi == 'TL' ? ' selected' : '') + '>TL</option>' +
+            '<option value="USD"' + (paraBirimi == 'USD' ? ' selected' : '') + '>USD</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label><input type="checkbox" id="editEsDost"' + (esDost ? ' checked' : '') + '> Es-Dost (Komisyonsuz)</label>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label><input type="checkbox" id="editAktif"' + (aktif ? ' checked' : '') + '> Aktif</label>' +
+        '</div>' +
+        '<button class="form-btn" onclick="saveCustomer(\'' + hesapNo + '\')">Kaydet</button>';
+      
+      document.getElementById('customerModal').classList.add('show');
+    }
+    
+    function closeCustomerModal() {
+      document.getElementById('customerModal').classList.remove('show');
+    }
+    
+    async function saveCustomer(hesapNo) {
+      const data = {
+        hakedis_miktari: document.getElementById('editHakedis').value,
+        komisyon_orani: document.getElementById('editKomisyon').value,
+        para_birimi: document.getElementById('editParaBirimi').value,
+        es_dost: document.getElementById('editEsDost').checked,
+        aktif: document.getElementById('editAktif').checked
+      };
+      
+      const res = await fetch('/api/kayit/' + hesapNo, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      });
+      
+      if (res.ok) {
+        alert('Kaydedildi!');
+        closeCustomerModal();
+        loadData();
+      } else {
+        alert('Hata!');
+      }
     }
     
     loadData();
