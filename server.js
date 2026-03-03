@@ -55,6 +55,16 @@ async function initDB() {
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_sifre VARCHAR(200)`);
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS sozlesme_link TEXT`);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS robot_gunluk (
+        id SERIAL PRIMARY KEY,
+        tarih DATE UNIQUE,
+        bakiye DECIMAL(20,2),
+        gunluk_pct DECIMAL(10,4),
+        musteri_sayisi INT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
     console.log('Tablolar hazir');
 
     const check = await pool.query('SELECT COUNT(*) FROM musteri_kayit');
@@ -383,6 +393,69 @@ function scheduleDailyBackup() {
 scheduleDailyBackup();
 
 // =====================================================
+// ROBOT GUNLUK KAYIT - Her gun 18:30 TRT (15:30 UTC)
+// =====================================================
+async function saveRobotGunluk() {
+  try {
+    const now = new Date();
+    const tr = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
+    const tarih = tr.toISOString().slice(0,10);
+
+    // O gun zaten kayitli mi?
+    const existing = await pool.query('SELECT id FROM robot_gunluk WHERE tarih = $1', [tarih]);
+    if (existing.rows.length > 0) {
+      console.log('Robot gunluk zaten kayitli:', tarih);
+      return;
+    }
+
+    // Musterilerin bugunki ortalamasini al
+    const result = await pool.query('SELECT bugun_yuzde FROM musteriler WHERE bugun_yuzde IS NOT NULL');
+    if (result.rows.length === 0) {
+      console.log('Robot gunluk: musteri verisi yok');
+      return;
+    }
+    const vals = result.rows.map(r => parseFloat(r.bugun_yuzde) || 0);
+    const ort = vals.reduce((a,b) => a+b, 0) / vals.length;
+
+    // Son bakiyeyi bul
+    const lastRow = await pool.query('SELECT bakiye FROM robot_gunluk ORDER BY tarih DESC LIMIT 1');
+    let bakiye;
+    if (lastRow.rows.length > 0) {
+      bakiye = parseFloat(lastRow.rows[0].bakiye) * (1 + ort/100);
+    } else {
+      // Ilk kayit - hardcoded son Excel bakiyesi
+      bakiye = 301216.89 * (1 + ort/100);
+    }
+
+    await pool.query(
+      'INSERT INTO robot_gunluk (tarih, bakiye, gunluk_pct, musteri_sayisi) VALUES ($1, $2, $3, $4)',
+      [tarih, Math.round(bakiye*100)/100, Math.round(ort*10000)/10000, vals.length]
+    );
+    console.log('Robot gunluk kaydedildi:', tarih, 'bakiye:', Math.round(bakiye), 'ort:', ort.toFixed(3)+'%');
+  } catch(err) {
+    console.error('Robot gunluk kayit hatasi:', err.message);
+  }
+}
+
+function scheduleRobotGunluk() {
+  function msUntil1830() {
+    const now = new Date();
+    const tr = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
+    const next = new Date(tr);
+    next.setHours(18, 30, 0, 0);
+    if (next <= tr) next.setDate(next.getDate() + 1);
+    return next - tr;
+  }
+  setTimeout(function run() {
+    saveRobotGunluk();
+    setTimeout(run, 24 * 60 * 60 * 1000);
+  }, msUntil1830());
+  console.log('Robot gunluk kayit zamanlandi. Ilk kayit', Math.round(msUntil1830()/3600000*10)/10 + ' saat sonra (18:30 TRT).');
+}
+scheduleRobotGunluk();
+
+
+// =====================================================
 // API ENDPOINTS
 // =====================================================
 
@@ -546,6 +619,14 @@ app.get('/api/export', async (req, res) => {
 app.get('/', (req, res) => { res.send(getMainPage()); });
 app.get('/musteriler', (req, res) => { res.send(getCustomersPage()); });
 app.get('/robot', (req, res) => { res.send(getRobotPage()); });
+app.get('/api/robot-gunluk', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT tarih, bakiye, gunluk_pct, musteri_sayisi FROM robot_gunluk ORDER BY tarih ASC');
+    res.json(result.rows);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/robot-detay', (req, res) => { res.send(getRobotDetayPage()); });
 
 // =====================================================
@@ -1430,8 +1511,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <h1>&#x1F4C8; Robot Performans</h1>
   <div class="header-btns">
     <a href="/" class="hbtn">&#x1F3E0; Ana Sayfa</a>
-    <a href="/musteriler" class="hbtn">&#x1F465; Müşteriler</a>
-    <a href="/robot-detay" class="hbtn">&#x1F4CB; Günlük Veri</a>
+    <a href="/musteriler" class="hbtn">&#x1F465; Musteriler</a>
+    <a href="/robot-detay" class="hbtn">&#x1F4CB; Gunluk Veri</a>
     <button onclick="exportExcel()" class="hbtn">&#x1F4E5; Excel</button>
   </div>
 </div>
@@ -1455,62 +1536,79 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 var DAILY_DATA=[["2024-01-01", 100000.0], ["2024-01-02", 107806.46], ["2024-01-03", 101487.67], ["2024-01-04", 103330.67], ["2024-01-05", 106614.43], ["2024-01-08", 114937.58], ["2024-01-09", 111130.76], ["2024-01-10", 115483.98], ["2024-01-11", 115473.88], ["2024-01-12", 113809.12], ["2024-01-15", 117940.64], ["2024-01-16", 119015.64], ["2024-01-17", 118245.89], ["2024-01-18", 117226.78], ["2024-01-19", 116816.08], ["2024-01-22", 117564.67], ["2024-01-23", 113711.1], ["2024-01-24", 112893.61], ["2024-01-25", 116830.08], ["2024-01-26", 124415.79], ["2024-01-29", 131723.39], ["2024-01-30", 133662.9], ["2024-01-31", 132524.84], ["2024-02-01", 135134.59], ["2024-02-02", 134691.0], ["2024-02-05", 135114.26], ["2024-02-06", 139417.21], ["2024-02-07", 140379.98], ["2024-02-08", 140296.71], ["2024-02-09", 139839.99], ["2024-02-12", 145948.23], ["2024-02-13", 139483.16], ["2024-02-14", 140835.86], ["2024-02-15", 144210.64], ["2024-02-16", 143738.75], ["2024-02-19", 143547.93], ["2024-02-20", 145086.31], ["2024-02-21", 144251.46], ["2024-02-22", 143669.15], ["2024-02-23", 144345.21], ["2024-02-26", 145232.75], ["2024-02-27", 144952.12], ["2024-02-28", 145114.32], ["2024-02-29", 145277.38], ["2024-03-01", 143476.85], ["2024-03-04", 142458.8], ["2024-03-05", 141921.84], ["2024-03-06", 142081.5], ["2024-03-07", 145848.66], ["2024-03-08", 148599.06], ["2024-03-11", 149308.4], ["2024-03-12", 147689.53], ["2024-03-13", 147304.84], ["2024-03-14", 147471.51], ["2024-03-15", 147638.76], ["2024-03-18", 148139.34], ["2024-03-19", 150247.08], ["2024-03-20", 150177.16], ["2024-03-21", 156493.66], ["2024-03-22", 156655.73], ["2024-03-25", 156468.29], ["2024-03-26", 153681.71], ["2024-03-27", 153720.54], ["2024-03-28", 155959.17], ["2024-03-29", 154602.82], ["2024-04-01", 153348.51], ["2024-04-02", 153939.41], ["2024-04-03", 152165.89], ["2024-04-04", 156359.37], ["2024-04-05", 165843.39], ["2024-04-08", 166179.3], ["2024-04-09", 166769.76], ["2024-04-15", 164085.21], ["2024-04-16", 161893.29], ["2024-04-17", 157182.62], ["2024-04-18", 157375.83], ["2024-04-19", 163006.39], ["2024-04-22", 159104.53], ["2024-04-24", 160684.36], ["2024-04-25", 157871.37], ["2024-04-26", 161259.63], ["2024-04-29", 167716.83], ["2024-04-30", 165248.47], ["2024-05-02", 167227.23], ["2024-05-03", 166297.04], ["2024-05-06", 164845.04], ["2024-05-07", 165905.38], ["2024-05-08", 162269.63], ["2024-05-09", 162196.27], ["2024-05-10", 159761.14], ["2024-05-13", 159636.07], ["2024-05-14", 157522.3], ["2024-05-15", 155207.37], ["2024-05-16", 157707.63], ["2024-05-17", 169037.93], ["2024-05-20", 173803.55], ["2024-05-21", 181542.98], ["2024-05-22", 177819.85], ["2024-05-23", 171581.58], ["2024-05-24", 170031.71], ["2024-05-27", 170584.49], ["2024-05-28", 170791.18], ["2024-05-29", 171018.13], ["2024-05-30", 171226.86], ["2024-05-31", 165911.42], ["2024-06-03", 165703.0], ["2024-06-04", 160735.29], ["2024-06-05", 161725.53], ["2024-06-06", 160950.67], ["2024-06-07", 161215.57], ["2024-06-10", 161789.38], ["2024-06-11", 161999.22], ["2024-06-12", 163051.18], ["2024-06-13", 165253.29], ["2024-06-14", 166343.95], ["2024-06-20", 169820.84], ["2024-06-21", 170362.78], ["2024-06-24", 170097.2], ["2024-06-25", 168108.28], ["2024-06-26", 167956.05], ["2024-06-27", 168499.86], ["2024-06-28", 168936.37], ["2024-07-01", 166624.84], ["2024-07-02", 166710.02], ["2024-07-03", 176374.8], ["2024-07-04", 179830.14], ["2024-07-05", 179089.19], ["2024-07-08", 178613.59], ["2024-07-09", 177252.17], ["2024-07-10", 177535.91], ["2024-07-11", 180578.35], ["2024-07-12", 180712.14], ["2024-07-16", 184260.44], ["2024-07-17", 183080.91], ["2024-07-18", 182353.63], ["2024-07-19", 181822.81], ["2024-07-22", 181474.64], ["2024-07-23", 180503.4], ["2024-07-24", 180547.04], ["2024-07-25", 180763.56], ["2024-07-26", 180975.13], ["2024-07-29", 181603.79], ["2024-07-30", 181812.55], ["2024-07-31", 182018.4], ["2024-08-01", 184692.5], ["2024-08-02", 180249.59], ["2024-08-05", 179263.61], ["2024-08-06", 179481.22], ["2024-08-07", 179701.21], ["2024-08-08", 180188.52], ["2024-08-09", 178033.64], ["2024-08-12", 176828.93], ["2024-08-13", 176777.61], ["2024-08-14", 171742.5], ["2024-08-15", 173954.59], ["2024-08-16", 168515.92], ["2024-08-19", 172714.42], ["2024-08-20", 172686.16], ["2024-08-21", 171718.76], ["2024-08-22", 172600.18], ["2024-08-23", 170950.95], ["2024-08-26", 171568.91], ["2024-08-27", 172107.51], ["2024-08-28", 170047.8], ["2024-08-29", 171148.11], ["2024-09-02", 178887.04], ["2024-09-03", 177190.69], ["2024-09-04", 176595.42], ["2024-09-05", 176686.33], ["2024-09-06", 176541.41], ["2024-09-09", 177197.55], ["2024-09-10", 177417.71], ["2024-09-11", 177636.23], ["2024-09-12", 177854.36], ["2024-09-13", 179841.04], ["2024-09-16", 178024.38], ["2024-09-17", 181559.03], ["2024-09-18", 182548.11], ["2024-09-19", 187975.11], ["2024-09-20", 188177.82], ["2024-09-23", 188641.34], ["2024-09-24", 194781.76], ["2024-09-25", 192803.99], ["2024-09-26", 190275.63], ["2024-09-27", 190897.78], ["2024-09-30", 191559.15], ["2024-10-01", 191810.42], ["2024-10-02", 192018.16], ["2024-10-03", 192247.1], ["2024-10-04", 192476.09], ["2024-10-07", 193167.48], ["2024-10-08", 191260.4], ["2024-10-09", 192865.13], ["2024-10-10", 188744.81], ["2024-10-11", 187645.25], ["2024-10-14", 187150.17], ["2024-10-15", 187019.68], ["2024-10-16", 190646.37], ["2024-10-17", 188577.82], ["2024-10-18", 185653.34], ["2024-10-21", 186122.36], ["2024-10-22", 183597.88], ["2024-10-23", 179624.49], ["2024-10-24", 179164.1], ["2024-10-25", 179115.29], ["2024-10-28", 179906.73], ["2024-10-30", 180675.73], ["2024-10-31", 177329.06], ["2024-11-01", 177289.46], ["2024-11-04", 176069.91], ["2024-11-05", 176265.01], ["2024-11-06", 177744.06], ["2024-11-07", 178905.38], ["2024-11-08", 190001.88], ["2024-11-11", 193976.68], ["2024-11-12", 192076.68], ["2024-11-13", 192513.74], ["2024-11-14", 193792.24], ["2024-11-15", 190885.29], ["2024-11-18", 190334.11], ["2024-11-19", 186797.63], ["2024-11-20", 186999.11], ["2024-11-21", 190223.16], ["2024-11-22", 199686.39], ["2024-11-25", 203212.95], ["2024-11-26", 200472.42], ["2024-11-27", 200192.32], ["2024-11-28", 200522.4], ["2024-11-29", 198155.11], ["2024-12-02", 199640.32], ["2024-12-03", 202612.57], ["2024-12-04", 201920.09], ["2024-12-05", 201916.81], ["2024-12-06", 203178.06], ["2024-12-09", 206210.39], ["2024-12-10", 201859.69], ["2024-12-11", 201394.94], ["2024-12-12", 201585.83], ["2024-12-13", 201809.98], ["2024-12-16", 200905.09], ["2024-12-17", 200905.25], ["2024-12-18", 199778.4], ["2024-12-19", 198883.42], ["2024-12-20", 199045.69], ["2024-12-23", 200681.23], ["2024-12-24", 201029.07], ["2024-12-25", 205724.42], ["2024-12-26", 204500.32], ["2024-12-27", 204177.41], ["2024-12-30", 203276.18], ["2024-12-31", 200316.85], ["2025-01-02", 201835.29], ["2025-01-03", 201333.43], ["2025-01-06", 202512.19], ["2025-01-07", 201399.46], ["2025-01-08", 201128.39], ["2025-01-09", 202466.1], ["2025-01-10", 198984.29], ["2025-01-13", 199767.92], ["2025-01-14", 200009.82], ["2025-01-15", 200252.17], ["2025-01-16", 197212.73], ["2025-01-17", 201542.4], ["2025-01-20", 202097.36], ["2025-01-21", 201903.16], ["2025-01-22", 204741.88], ["2025-01-23", 203272.92], ["2025-01-24", 204085.33], ["2025-01-27", 203321.41], ["2025-01-28", 205174.7], ["2025-01-29", 202139.15], ["2025-01-30", 200390.92], ["2025-01-31", 199405.44], ["2025-02-03", 199836.57], ["2025-02-04", 200070.66], ["2025-02-05", 200302.38], ["2025-02-06", 199935.69], ["2025-02-07", 201855.65], ["2025-02-10", 199004.54], ["2025-02-11", 198849.51], ["2025-02-12", 198905.46], ["2025-02-13", 199028.85], ["2025-02-14", 198129.25], ["2025-02-17", 198380.25], ["2025-02-18", 199160.9], ["2025-02-19", 196968.56], ["2025-02-20", 197576.74], ["2025-02-21", 196845.42], ["2025-02-24", 197683.46], ["2025-02-25", 197874.25], ["2025-02-26", 198483.98], ["2025-02-27", 203797.93], ["2025-02-28", 202635.6], ["2025-03-03", 216843.81], ["2025-03-04", 216077.38], ["2025-03-05", 225733.69], ["2025-03-06", 230543.68], ["2025-03-07", 228231.91], ["2025-03-10", 226829.87], ["2025-03-11", 227501.28], ["2025-03-12", 231827.35], ["2025-03-13", 232654.6], ["2025-03-14", 233483.92], ["2025-03-17", 232696.3], ["2025-03-18", 231931.12], ["2025-03-19", 228014.43], ["2025-03-20", 228224.67], ["2025-03-21", 228438.92], ["2025-03-24", 229111.29], ["2025-03-25", 234242.94], ["2025-03-26", 225001.67], ["2025-03-27", 223043.95], ["2025-03-28", 222959.62], ["2025-04-02", 222845.74], ["2025-04-03", 222744.91], ["2025-04-04", 222958.42], ["2025-04-07", 223615.92], ["2025-04-08", 220163.02], ["2025-04-09", 211828.66], ["2025-04-10", 206463.83], ["2025-04-11", 205458.74], ["2025-04-14", 203903.16], ["2025-04-15", 203525.63], ["2025-04-16", 203204.32], ["2025-04-17", 199481.23], ["2025-04-18", 200180.55], ["2025-04-21", 193883.12], ["2025-04-22", 194346.29], ["2025-04-24", 199669.27], ["2025-04-25", 196639.49], ["2025-04-28", 196509.07], ["2025-04-29", 196160.52], ["2025-04-30", 196362.61], ["2025-05-02", 197973.78], ["2025-05-05", 197855.81], ["2025-05-06", 196700.39], ["2025-05-07", 198571.25], ["2025-05-08", 201391.99], ["2025-05-09", 201659.68], ["2025-05-12", 210976.62], ["2025-05-13", 211665.34], ["2025-05-14", 212197.58], ["2025-05-15", 209622.87], ["2025-05-16", 210753.99], ["2025-05-20", 211305.89], ["2025-05-21", 211183.7], ["2025-05-22", 211551.64], ["2025-05-23", 211761.48], ["2025-05-26", 212428.12], ["2025-05-27", 212652.16], ["2025-05-28", 212876.49], ["2025-05-29", 213100.99], ["2025-05-30", 213325.69], ["2025-06-02", 214000.48], ["2025-06-03", 219294.92], ["2025-06-04", 222669.74], ["2025-06-05", 222743.18], ["2025-06-10", 230353.78], ["2025-06-11", 229260.32], ["2025-06-12", 225041.37], ["2025-06-13", 221905.42], ["2025-06-16", 222587.42], ["2025-06-17", 221422.98], ["2025-06-18", 219481.13], ["2025-06-19", 219693.01], ["2025-06-20", 219917.08], ["2025-06-23", 220580.92], ["2025-06-24", 218080.73], ["2025-06-25", 218539.83], ["2025-06-26", 214686.25], ["2025-06-27", 212924.5], ["2025-06-30", 248205.95], ["2025-07-01", 249917.41], ["2025-07-02", 257546.14], ["2025-07-03", 257751.4], ["2025-07-04", 258837.43], ["2025-07-07", 249916.82], ["2025-07-08", 251109.19], ["2025-07-09", 251738.99], ["2025-07-10", 259425.64], ["2025-07-11", 258714.74], ["2025-07-14", 258833.82], ["2025-07-16", 261521.14], ["2025-07-17", 265053.7], ["2025-07-18", 261785.71], ["2025-07-21", 274764.93], ["2025-07-22", 273653.84], ["2025-07-23", 274133.95], ["2025-07-24", 274865.53], ["2025-07-25", 273368.39], ["2025-07-28", 272845.13], ["2025-07-29", 272888.28], ["2025-07-30", 273134.7], ["2025-07-31", 274678.55], ["2025-08-01", 276303.17], ["2025-08-04", 281968.62], ["2025-08-05", 279665.15], ["2025-08-06", 280118.84], ["2025-08-07", 280005.01], ["2025-08-08", 279129.37], ["2025-08-11", 278636.12], ["2025-08-12", 276991.47], ["2025-08-13", 276593.42], ["2025-08-14", 274671.21], ["2025-08-15", 274909.04], ["2025-08-18", 275654.22], ["2025-08-19", 274932.37], ["2025-08-20", 282354.18], ["2025-08-21", 286595.1], ["2025-08-22", 287416.25], ["2025-08-25", 288764.83], ["2025-08-26", 287326.49], ["2025-08-27", 286032.41], ["2025-08-28", 286392.45], ["2025-08-29", 286649.58], ["2025-09-01", 285185.98], ["2025-09-02", 276094.61], ["2025-09-03", 276317.0], ["2025-09-04", 276567.61], ["2025-09-05", 276818.39], ["2025-09-08", 277571.2], ["2025-09-09", 277822.11], ["2025-09-10", 280173.49], ["2025-09-11", 273234.73], ["2025-09-12", 273457.73], ["2025-09-15", 297663.75], ["2025-09-16", 302782.35], ["2025-09-17", 302603.26], ["2025-09-18", 297951.38], ["2025-09-19", 301120.04], ["2025-09-22", 309125.78], ["2025-09-23", 306051.69], ["2025-09-24", 300721.6], ["2025-09-25", 301441.19], ["2025-09-26", 297918.94], ["2025-09-29", 297594.43], ["2025-09-30", 297844.16], ["2025-10-01", 302749.92], ["2025-10-02", 287997.71], ["2025-10-03", 280593.13], ["2025-10-06", 281308.74], ["2025-10-07", 281548.8], ["2025-10-08", 281789.13], ["2025-10-09", 282029.75], ["2025-10-10", 282270.35], ["2025-10-13", 282920.58], ["2025-10-14", 283161.12], ["2025-10-15", 283401.56], ["2025-10-16", 283642.56], ["2025-10-17", 283883.76], ["2025-10-20", 292356.31], ["2025-10-21", 296325.91], ["2025-10-22", 301811.02], ["2025-10-23", 296356.6], ["2025-10-24", 314684.83], ["2025-10-27", 308572.56], ["2025-10-28", 304630.92], ["2025-10-30", 301754.45], ["2025-10-31", 301920.52], ["2025-11-03", 308001.16], ["2025-11-04", 302593.33], ["2025-11-05", 293599.3], ["2025-11-06", 294884.66], ["2025-11-07", 286338.9], ["2025-11-10", 281968.62], ["2025-11-12", 282203.27], ["2025-11-13", 282438.04], ["2025-11-14", 282673.08], ["2025-11-17", 281449.05], ["2025-11-18", 277785.88], ["2025-11-19", 287469.16], ["2025-11-20", 290410.59], ["2025-11-21", 283178.58], ["2025-11-24", 281416.41], ["2025-11-25", 278016.9], ["2025-11-26", 280383.47], ["2025-11-27", 282116.99], ["2025-11-28", 278636.39], ["2025-12-01", 291584.99], ["2025-12-02", 285536.15], ["2025-12-03", 280996.19], ["2025-12-04", 277225.2], ["2025-12-05", 277443.85], ["2025-12-08", 278082.9], ["2025-12-09", 281334.84], ["2025-12-10", 272443.21], ["2025-12-11", 268492.61], ["2025-12-12", 270056.86], ["2025-12-15", 274541.44], ["2025-12-16", 270624.12], ["2025-12-17", 270812.54], ["2025-12-18", 271028.95], ["2025-12-19", 271245.43], ["2025-12-22", 270185.03], ["2025-12-23", 268984.51], ["2025-12-24", 267915.3], ["2025-12-25", 263933.07], ["2025-12-26", 262772.74], ["2025-12-29", 263244.52], ["2025-12-30", 263452.17], ["2025-12-31", 263216.14], ["2026-01-02", 279329.81], ["2026-01-05", 285143.26], ["2026-01-06", 298150.13], ["2026-01-07", 294415.82], ["2026-01-08", 291219.27], ["2026-01-09", 295451.93], ["2026-01-12", 296101.3], ["2026-01-13", 298639.62], ["2026-01-14", 295940.2], ["2026-01-15", 298354.33], ["2026-01-16", 306458.36], ["2026-01-19", 315564.34], ["2026-01-20", 317892.13], ["2026-01-21", 317018.86], ["2026-01-22", 305387.72], ["2026-01-23", 299289.41], ["2026-01-26", 304629.24], ["2026-01-27", 299057.67], ["2026-01-28", 304447.55], ["2026-01-29", 325233.83], ["2026-01-30", 328795.44], ["2026-02-02", 310969.65], ["2026-02-03", 321275.96], ["2026-02-04", 318456.52], ["2026-02-05", 311947.18], ["2026-02-06", 310668.78], ["2026-02-09", 313405.91], ["2026-02-10", 307738.57], ["2026-02-11", 306338.4], ["2026-02-12", 326435.37], ["2026-02-13", 324303.89], ["2026-02-16", 325232.09], ["2026-02-17", 318972.32], ["2026-02-18", 316837.99], ["2026-02-19", 313970.22], ["2026-02-20", 315625.11], ["2026-02-23", 314257.19], ["2026-02-24", 310849.33], ["2026-02-25", 305873.8], ["2026-02-26", 306089.49], ["2026-02-27", 301404.87], ["2026-03-02", 303024.92], ["2026-03-03", 301216.89]];
 var MONTHLY_PCT={"2024-01": 32.52, "2024-02": 9.62, "2024-03": 6.42, "2024-04": 6.89, "2024-05": 0.4, "2024-06": 1.82, "2024-07": 7.74, "2024-08": -5.97, "2024-09": 11.93, "2024-10": -7.43, "2024-11": 11.74, "2024-12": 1.09, "2025-01": -0.45, "2025-02": 1.62, "2025-03": 10.03, "2025-04": -11.93, "2025-05": 8.64, "2025-06": 16.35, "2025-07": 10.67, "2025-08": 4.36, "2025-09": 3.91, "2025-10": 1.37, "2025-11": -7.71, "2025-12": -5.53, "2026-01": 24.91, "2026-02": -8.33, "2026-03": -0.06};
 var MONTH_NAMES=["Oca","Sub","Mar","Nis","May","Haz","Tem","Agu","Eyl","Eki","Kas","Ara"];
+
 function exportExcel(){
   var wb=XLSX.utils.book_new();
-  // Tüm extData'yı al - init'ten sonra global yapacağız
   var rows=[["Tarih","Bakiye (TL)","Gunluk Degisim %","Kaynak"]];
-  for(var i=0;i<window._extData.length;i++){
-    var r=window._extData[i];
-    var prevB=i>0?window._extData[i-1][1]:null;
-    var pct=prevB?((r[1]/prevB)-1)*100:null;
-    var kaynak=i===0?"Baslangic":"Gecmis Veri";
-    rows.push([r[0],Math.round(r[1]*100)/100,pct?Math.round(pct*1000)/1000:null,kaynak]);
+  var ed=window._extData||DAILY_DATA;
+  var si=window._splitIdx||DAILY_DATA.length;
+  for(var i=0;i<ed.length;i++){
+    var prevB=i>0?ed[i-1][1]:null;
+    var pct=prevB?Math.round((ed[i][1]/prevB-1)*100000)/1000:null;
+    var kaynak=i===0?"Baslangic":i<si?"Gecmis Veri":"DB Kayitli / Canli";
+    rows.push([ed[i][0],Math.round(ed[i][1]*100)/100,pct,kaynak]);
   }
   var ws=XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"]=[{wch:14},{wch:16},{wch:18},{wch:30}];
+  ws["!cols"]=[{wch:14},{wch:16},{wch:18},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws,"Robot Performans");
-
-  // Aylik getiri sayfasi
   var mrows=[["Ay","Getiri %"]];
   Object.keys(MONTHLY_PCT).sort().forEach(function(ym){mrows.push([ym,MONTHLY_PCT[ym]]);});
   var ws2=XLSX.utils.aoa_to_sheet(mrows);
-  ws2["!cols"]=[{wch:10},{wch:12}];
   XLSX.utils.book_append_sheet(wb,ws2,"Aylik Getiri");
-
-  var today=new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb,"robot_performans_"+today+".xlsx");
+  XLSX.writeFile(wb,"robot_performans_"+new Date().toISOString().slice(0,10)+".xlsx");
 }
+
 async function init(){
+  var dbRows=[];
+  try{
+    var r=await fetch("/api/robot-gunluk");
+    dbRows=await r.json();
+  }catch(e){}
+
   var liveAvgPct=0;
   try{
-    var r=await fetch("/api/musteriler");
-    var data=await r.json();
+    var r2=await fetch("/api/musteriler");
+    var data=await r2.json();
     if(data.length>0){
-      var sum=0;
-      for(var i=0;i<data.length;i++) sum+=parseFloat(data[i].bugun_yuzde)||0;
-      liveAvgPct=sum/data.length;
+      var s=0;
+      for(var i=0;i<data.length;i++) s+=parseFloat(data[i].bugun_yuzde)||0;
+      liveAvgPct=s/data.length;
     }
   }catch(e){}
-  var lastEntry=DAILY_DATA[DAILY_DATA.length-1];
-  var lastDate=new Date(lastEntry[0]);
+
+  var extData=DAILY_DATA.slice();
+  var lastDbDate=extData[extData.length-1][0];
+  for(var i=0;i<dbRows.length;i++){
+    var d=dbRows[i].tarih.slice(0,10);
+    if(d>lastDbDate){
+      extData.push([d,parseFloat(dbRows[i].bakiye)]);
+      lastDbDate=d;
+    }
+  }
   var today=new Date();
   today.setHours(0,0,0,0);
-  var extData=DAILY_DATA.slice();
-  var lastBakiye=lastEntry[1];
-  var cur=new Date(lastDate);
-  cur.setDate(cur.getDate()+1);
-  while(cur<=today){
-    var dow=cur.getDay();
-    if(dow!==0&&dow!==6){
-      lastBakiye=lastBakiye*(1+liveAvgPct/100);
-      var ds=cur.toISOString().slice(0,10);
-      extData.push([ds,Math.round(lastBakiye*100)/100]);
-    }
-    cur.setDate(cur.getDate()+1);
+  var todayStr=today.toISOString().slice(0,10);
+  if(todayStr>lastDbDate && today.getDay()!==0 && today.getDay()!==6){
+    var lastB=extData[extData.length-1][1];
+    extData.push([todayStr,Math.round(lastB*(1+liveAvgPct/100)*100)/100]);
   }
+  window._extData=extData;
+  window._liveAvgPct=liveAvgPct;
+  window._splitIdx=DAILY_DATA.length;
+
   var ilk=extData[0][1];
   var son=extData[extData.length-1][1];
   var toplamPct=((son/ilk)-1)*100;
+  var startDate=new Date(extData[0][0]);
+  var endDate=new Date(extData[extData.length-1][0]);
+  var totalDays=Math.round((endDate-startDate)/(1000*60*60*24));
+  var yil=Math.floor(totalDays/365);
+  var ay=Math.floor((totalDays%365)/30);
+  var gun=(totalDays%365)%30;
+  var sureStr="";
+  if(yil>0)sureStr+=yil+" yil ";
+  if(ay>0)sureStr+=ay+" ay ";
+  if(gun>0&&yil===0)sureStr+=gun+" gun";
   var peak=ilk,maxDD=0;
   for(var j=0;j<extData.length;j++){
     var b=extData[j][1];
@@ -1518,64 +1616,67 @@ async function init(){
     var dd=(peak-b)/peak*100;
     if(dd>maxDD)maxDD=dd;
   }
-  var gunlukSum=0;
-  for(var k=1;k<extData.length;k++) gunlukSum+=(extData[k][1]/extData[k-1][1]-1)*100;
-  var gunlukOrtalama=gunlukSum/(extData.length-1);
-  var startDate=new Date(extData[0][0]);
-  var endDate=new Date(extData[extData.length-1][0]);
-  var totalDays=Math.round((endDate-startDate)/(1000*60*60*24));
-  var yil=Math.floor(totalDays/365);
-  var kalanGun=totalDays%365;
-  var ay=Math.floor(kalanGun/30);
-  var gun=kalanGun%30;
-  var sureStr="";
-  if(yil>0) sureStr+=yil+" yil ";
-  if(ay>0) sureStr+=ay+" ay ";
-  if(gun>0&&yil===0) sureStr+=gun+" gun";
-  sureStr=sureStr.trim();
+  var gsum=0;
+  for(var k=1;k<extData.length;k++) gsum+=(extData[k][1]/extData[k-1][1]-1)*100;
+  var gort=gsum/(extData.length-1);
   document.getElementById("sToplam").textContent=(toplamPct>=0?"+":"")+toplamPct.toFixed(1)+"%";
   document.getElementById("sToplam").style.color=toplamPct>=0?"#16a34a":"#dc2626";
-  document.getElementById("sSure").textContent=sureStr;
+  document.getElementById("sSure").textContent=sureStr.trim();
   document.getElementById("sDrawdown").textContent="-"+maxDD.toFixed(1)+"%";
-  document.getElementById("sGunluk").textContent=(gunlukOrtalama>=0?"+":"")+gunlukOrtalama.toFixed(3)+"%";
-  var labels=[];
-  var values=[];
-  for(var n=0;n<extData.length;n++){labels.push(extData[n][0]);values.push(extData[n][1]);}
-  var splitIdx=DAILY_DATA.length;
+  document.getElementById("sGunluk").textContent=(gort>=0?"+":"")+gort.toFixed(3)+"%";
+
+  var labels=extData.map(function(x){return x[0];});
+  var values=extData.map(function(x){return x[1];});
+  var si=DAILY_DATA.length;
   new Chart(document.getElementById("chartBakiye"),{
     type:"line",
-    data:{
-      labels:labels,
-      datasets:[{
-        data:values,
-        segment:{borderColor:function(ctx){return ctx.p0DataIndex<splitIdx-1?"#1a73e8":"#f59e0b";}},
-        pointRadius:0,
-        borderWidth:2,
-        tension:0.1,
-        fill:false
-      }]
-    },
-    options:{
-      responsive:true,
-      maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
-      scales:{
-        x:{ticks:{maxTicksLimit:14,callback:function(val,i){return labels[i]?labels[i].slice(0,7):""}},grid:{display:false}},
-        y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}
+    data:{labels:labels,datasets:[{data:values,segment:{borderColor:function(ctx){return ctx.p0DataIndex<si-1?"#1a73e8":"#f59e0b";}},pointRadius:0,borderWidth:2,tension:0.1,fill:false}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
+      scales:{x:{ticks:{maxTicksLimit:14,callback:function(val,i){return labels[i]?labels[i].slice(0,7):""}},grid:{display:false}},y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}}}
+  });
+
+  // Aylik getiri: extData'dan dinamik hesapla
+  // Her ay icin: o ayin ilk gununun onceki ayin son bakiyesi baz alinir
+  var aylikData={};
+  // Once MONTHLY_PCT'yi base al (gecmis sabit veriler)
+  Object.keys(MONTHLY_PCT).forEach(function(ym){ aylikData[ym]=MONTHLY_PCT[ym]; });
+
+  // extData'dan DB+canli gunleri icin son N ayin gercek degerini hesapla
+  // extData'daki son 2 ayi dinamik hesapla (DB verileri geldikce daha dogru olur)
+  var aylikSon={};
+  for(var ai=0;ai<extData.length;ai++){
+    var aym=extData[ai][0].slice(0,7);
+    aylikSon[aym]={bakiye:extData[ai][1],idx:ai};
+    if(!aylikSon[aym].first) aylikSon[aym].first={bakiye:extData[ai][1],idx:ai};
+  }
+  // Her ay icin: o ayin son bakiyesi / bir onceki ayin son bakiyesi
+  var aylar=Object.keys(aylikSon).sort();
+  for(var ai2=1;ai2<aylar.length;ai2++){
+    var curAy=aylar[ai2];
+    var prevAy=aylar[ai2-1];
+    if(aylikSon[prevAy] && aylikSon[curAy]){
+      var prevB2=aylikSon[prevAy].bakiye;
+      var curB2=aylikSon[curAy].bakiye;
+      var ayPct=Math.round((curB2/prevB2-1)*10000)/100;
+      // Sadece DAILY_DATA'dan sonraki aylar icin guncelle (oncekiler sabit kalsin)
+      var lastStaticAy=Object.keys(MONTHLY_PCT).sort().pop();
+      if(curAy>=lastStaticAy){
+        aylikData[curAy]=ayPct;
       }
     }
-  });
-  window._extData=extData;window._liveAvgPct=liveAvgPct;var grid=document.getElementById("monthlyGrid");
-  var entries=Object.keys(MONTHLY_PCT).sort();
+  }
+
+  var grid=document.getElementById("monthlyGrid");
+  var entries=Object.keys(aylikData).sort();
   for(var q=0;q<entries.length;q++){
     var ym=entries[q];
-    var pct=MONTHLY_PCT[ym];
+    var pct=aylikData[ym];
     var parts=ym.split("-");
-    var y=parts[0];
-    var m=parseInt(parts[1])-1;
+    var isCurMonth=(ym===new Date().toISOString().slice(0,7));
     var cell=document.createElement("div");
     cell.className="month-cell "+(pct>0?"mpos":pct<0?"mneg":"mzero");
-    cell.innerHTML='<div class="month-name">'+y+" "+MONTH_NAMES[m]+'</div><div class="month-val">'+(pct>0?"+":"")+pct.toFixed(1)+"%</div>";
+    var label=isCurMonth?" <small style='font-size:0.6rem;opacity:0.7'>(devam)</small>":"";
+    cell.innerHTML='<div class="month-name">'+parts[0]+" "+MONTH_NAMES[parseInt(parts[1])-1]+label+'</div><div class="month-val">'+(pct>0?"+":"")+pct.toFixed(1)+"%</div>";
     grid.appendChild(cell);
   }
 }
@@ -1612,7 +1713,8 @@ tr:last-child td{border-bottom:none}
 .pos{color:#16a34a;font-weight:600}
 .neg{color:#dc2626;font-weight:600}
 .badge-gecmis{background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:10px;font-size:0.7rem;font-weight:600}
-.badge-canli{background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:10px;font-size:0.7rem;font-weight:600}
+.badge-db{background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:10px;font-size:0.7rem;font-weight:600}
+.badge-canli{background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:10px;font-size:0.7rem;font-weight:600}
 </style>
 </head>
 <body>
@@ -1631,15 +1733,7 @@ tr:last-child td{border-bottom:none}
     <div class="stat-card"><div class="stat-val" id="sGunSayisi" style="color:#888">-</div><div class="stat-lbl">Toplam Gun</div></div>
   </div>
   <table>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Tarih</th>
-        <th>Bakiye</th>
-        <th>Gunluk Degisim</th>
-        <th>Kaynak</th>
-      </tr>
-    </thead>
+    <thead><tr><th>#</th><th>Tarih</th><th>Bakiye</th><th>Gunluk Degisim</th><th>Kaynak</th></tr></thead>
     <tbody id="tableBody"></tbody>
   </table>
 </div>
@@ -1648,38 +1742,45 @@ var DAILY_DATA=[["2024-01-01", 100000.0], ["2024-01-02", 107806.46], ["2024-01-0
 var splitIdx=DAILY_DATA.length;
 
 async function init(){
+  var dbRows=[];
+  try{
+    var r=await fetch("/api/robot-gunluk");
+    dbRows=await r.json();
+  }catch(e){}
+
   var liveAvgPct=0;
   try{
-    var r=await fetch("/api/musteriler");
-    var data=await r.json();
+    var r2=await fetch("/api/musteriler");
+    var data=await r2.json();
     if(data.length>0){
-      var sum=0;
-      for(var i=0;i<data.length;i++) sum+=parseFloat(data[i].bugun_yuzde)||0;
-      liveAvgPct=sum/data.length;
+      var s=0;
+      for(var i=0;i<data.length;i++) s+=parseFloat(data[i].bugun_yuzde)||0;
+      liveAvgPct=s/data.length;
     }
   }catch(e){}
 
   var extData=DAILY_DATA.slice();
-  var lastBakiye=DAILY_DATA[DAILY_DATA.length-1][1];
-  var lastDate=new Date(DAILY_DATA[DAILY_DATA.length-1][0]);
+  var lastDbDate=extData[extData.length-1][0];
+  for(var i=0;i<dbRows.length;i++){
+    var d=dbRows[i].tarih.slice(0,10);
+    if(d>lastDbDate){
+      extData.push([d,parseFloat(dbRows[i].bakiye),dbRows[i].gunluk_pct,'db']);
+      lastDbDate=d;
+    }
+  }
   var today=new Date();
   today.setHours(0,0,0,0);
-  var cur=new Date(lastDate);
-  cur.setDate(cur.getDate()+1);
-  while(cur<=today){
-    var dow=cur.getDay();
-    if(dow!==0&&dow!==6){
-      lastBakiye=lastBakiye*(1+liveAvgPct/100);
-      extData.push([cur.toISOString().slice(0,10),Math.round(lastBakiye*100)/100]);
-    }
-    cur.setDate(cur.getDate()+1);
+  var todayStr=today.toISOString().slice(0,10);
+  if(todayStr>lastDbDate && today.getDay()!==0 && today.getDay()!==6){
+    var lastB=extData[extData.length-1][1];
+    extData.push([todayStr,Math.round(lastB*(1+liveAvgPct/100)*100)/100,liveAvgPct,'canli']);
   }
 
   var fmt=function(n){return new Intl.NumberFormat('tr-TR').format(Math.round(n));};
   var sum=0,maxPct=-Infinity,minPct=Infinity,count=0;
   for(var i=1;i<extData.length;i++){
     var pct=(extData[i][1]/extData[i-1][1]-1)*100;
-    sum+=pct; count++;
+    sum+=pct;count++;
     if(pct>maxPct)maxPct=pct;
     if(pct<minPct)minPct=pct;
   }
@@ -1687,14 +1788,16 @@ async function init(){
   document.getElementById('sOrtalama').textContent=(ort>=0?'+':'')+ort.toFixed(3)+'%';
   document.getElementById('sMax').textContent='+'+maxPct.toFixed(3)+'%';
   document.getElementById('sMin').textContent=minPct.toFixed(3)+'%';
-  document.getElementById('sGunSayisi').textContent=extData.length-1+' gun';
+  document.getElementById('sGunSayisi').textContent=(extData.length-1)+' gun';
 
   var html='';
   for(var j=extData.length-1;j>=1;j--){
     var pct2=(extData[j][1]/extData[j-1][1]-1)*100;
     var pctStr=pct2>=0?'<span class="pos">+'+pct2.toFixed(3)+'%</span>':'<span class="neg">'+pct2.toFixed(3)+'%</span>';
-    var isCanli=j>=splitIdx;
-    var badge=isCanli?'<span class="badge-canli">Ort. '+(liveAvgPct>=0?'+':'')+liveAvgPct.toFixed(3)+'%</span>':'<span class="badge-gecmis">Gecmis Veri</span>';
+    var src=extData[j][3];
+    var badge=src==='db'?'<span class="badge-db">Kaydedildi ('+parseFloat(extData[j][2]).toFixed(3)+'%)</span>'
+             :src==='canli'?'<span class="badge-canli">Bugun canli ('+liveAvgPct.toFixed(3)+'%)</span>'
+             :'<span class="badge-gecmis">Gecmis Veri</span>';
     html+='<tr><td style="color:#aaa">'+j+'</td><td>'+extData[j][0]+'</td><td>'+fmt(extData[j][1])+' TL</td><td>'+pctStr+'</td><td>'+badge+'</td></tr>';
   }
   document.getElementById('tableBody').innerHTML=html;
