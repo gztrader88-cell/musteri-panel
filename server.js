@@ -649,8 +649,8 @@ function getMainPage() {
         <div class="hakodis-cell"><div class="hakodis-val green" id="hHazirKomisyon">-</div><div class="hakodis-lbl">Hakedişe Hazır Komisyon</div></div>
         <div class="hakodis-cell"><div class="hakodis-val" id="hHazirSayi">-</div><div class="hakodis-lbl">Hazır Kişi Sayısı</div></div>
         <div class="hakodis-cell"><div class="hakodis-val red" id="hEnUzakPct">-</div><div class="hakodis-lbl">En Uzak Kişi (% artış)</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val orange" id="hTumununIhtiyac">-</div><div class="hakodis-lbl">Herkes İçin Robot Kazanmalı</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val orange" id="hYuzde80Ihtiyac">-</div><div class="hakodis-lbl">%80 İçin Robot Kazanmalı</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val orange" id="hTumununIhtiyac" style="font-size:0.8rem">-</div><div class="hakodis-lbl">Herkes Hakedis Ustunde</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val orange" id="hYuzde80Ihtiyac" style="font-size:0.8rem">-</div><div class="hakodis-lbl">%80 Hakedis Ustunde</div></div>
         <div class="hakodis-cell"><div class="hakodis-val red" id="hEnUzakIsim">-</div><div class="hakodis-lbl">En Uzak Kişi</div></div>
       </div>
     </div>
@@ -845,21 +845,31 @@ function getMainPage() {
       var hazirKomisyon=hazirlar.reduce(function(s,m){if(m.es_dost)return s;return s+(m.varlik-m.hakedis)*(m.komisyon_orani/100);},0);
       var hazirDegil=musteriler.filter(function(m){return m.varlik<m.hakedis;});
       var ihtiyaclar=hazirDegil.map(function(m){return {isim:m.isim,ihtiyac:m.hakedis-m.varlik,pct:((m.hakedis-m.varlik)/m.varlik)*100};}).sort(function(a,b){return b.pct-a.pct;});
-      var tumIhtiyac=ihtiyaclar.reduce(function(s,m){return s+m.ihtiyac;},0);
-      var sirali=[].concat(ihtiyaclar).sort(function(a,b){return a.ihtiyac-b.ihtiyac;});
+      var sirali=[].concat(ihtiyaclar).sort(function(a,b){return a.pct-b.pct;});
       var hedef80=Math.ceil(hazirDegil.length*0.8);
-      var yuzde80Ihtiyac=sirali.slice(0,hedef80).reduce(function(s,m){return s+m.ihtiyac;},0);
+      var kisi80=sirali[hedef80-1];
       var enUzak=ihtiyaclar[0];
       document.getElementById('hHazirKomisyon').textContent=formatMoney(hazirKomisyon)+' TL';
       document.getElementById('hHazirSayi').textContent=hazirlar.length+' kisi';
-      document.getElementById('hTumununIhtiyac').textContent=formatMoney(tumIhtiyac)+' TL';
-      document.getElementById('hYuzde80Ihtiyac').textContent=formatMoney(yuzde80Ihtiyac)+' TL';
+      if(enUzak){
+        document.getElementById('hTumununIhtiyac').textContent='%'+enUzak.pct.toFixed(1)+' artista herkes hakedise ulasir';
+      } else {
+        document.getElementById('hTumununIhtiyac').textContent='Herkes hakedis ustunde';
+        document.getElementById('hTumununIhtiyac').style.color='#16a34a';
+      }
+      if(kisi80){
+        document.getElementById('hYuzde80Ihtiyac').textContent='%'+kisi80.pct.toFixed(1)+' artista %80 hakedis ustunde olur';
+      } else {
+        document.getElementById('hYuzde80Ihtiyac').textContent='%80 zaten hakedis ustunde';
+        document.getElementById('hYuzde80Ihtiyac').style.color='#16a34a';
+      }
       if(enUzak){
         document.getElementById('hEnUzakPct').textContent='%'+enUzak.pct.toFixed(1)+' artis';
         document.getElementById('hEnUzakIsim').textContent=enUzak.isim;
       } else {
         document.getElementById('hEnUzakPct').textContent='-';
         document.getElementById('hEnUzakIsim').textContent='Herkes hazir!';
+        document.getElementById('hEnUzakIsim').style.color='#16a34a';
       }
     }
 
