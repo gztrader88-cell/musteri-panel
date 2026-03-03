@@ -1662,18 +1662,22 @@ async function init(){
     if(data.length>0){
       var sum=0;
       var count=0;
-      var detaylar=[];
+      var maxPct=-Infinity,minPct=Infinity;
       for(var i=0;i<data.length;i++){
         var pct=parseFloat(data[i].bugun_yuzde)||0;
         sum+=pct;
         count++;
-        detaylar.push((data[i].isim||("#"+data[i].hesap_no))+": "+(pct>=0?"+":"")+pct.toFixed(2)+"%");
+        if(pct>maxPct)maxPct=pct;
+        if(pct<minPct)minPct=pct;
       }
       liveAvgPct=sum/count;
-      liveStr="Bugunun ortalamasi: <strong>"+(liveAvgPct>=0?"+":"")+liveAvgPct.toFixed(3)+"%</strong> ("+count+" musteri) &nbsp;|&nbsp; "+detaylar.join(" &nbsp; ");
+      liveStr='<span style="margin-right:20px">&#x2205; Ortalama: <strong>'+(liveAvgPct>=0?"+":"")+liveAvgPct.toFixed(3)+'%</strong></span>'
+             +'<span style="margin-right:20px;color:#16a34a">&#x2191; Maks: <strong>+'+maxPct.toFixed(3)+'%</strong></span>'
+             +'<span style="color:#dc2626">&#x2193; Min: <strong>'+minPct.toFixed(3)+'%</strong></span>'
+             +'<span style="margin-left:20px;color:#888">'+count+' musteri &bull; bugun projeksiyon referansi</span>';
     }
   }catch(e){}
-  document.getElementById("liveInfo").innerHTML="<strong>Canli Referans:</strong> "+liveStr;
+  document.getElementById("liveInfo").innerHTML=liveStr;
 
   var extData=DAILY_DATA.slice();
   var lastBakiye=DAILY_DATA[DAILY_DATA.length-1][1];
