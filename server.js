@@ -839,7 +839,7 @@ function getMainPage() {
       kayitliList.forEach(function(k){kayitliMap[k.hesap_no]=k;});
       var musteriler=liveData.map(function(m){
         var k=kayitliMap[m.hesap_no]||{};
-        return {isim:m.isim||('#'+m.hesap_no),varlik:parseFloat(m.varlik)||0,hakedis:parseFloat(k.hakedis_miktari)||0,komisyon_orani:parseFloat(k.komisyon_orani)||25,es_dost:k.es_dost||false};
+        return {isim:m.isim||('#'+m.hesap_no),varlik:parseFloat(m.varlik)||0,hakedis:parseFloat(k.baslangic_parasi)||0,komisyon_orani:parseFloat(k.komisyon_orani)||25,es_dost:k.es_dost||false};
       }).filter(function(m){return m.hakedis>0&&m.varlik>0;});
       var hazirlar=musteriler.filter(function(m){return m.varlik>=m.hakedis;});
       var hazirKomisyon=hazirlar.reduce(function(s,m){if(m.es_dost)return s;return s+(m.varlik-m.hakedis)*(m.komisyon_orani/100);},0);
