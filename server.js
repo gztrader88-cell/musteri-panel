@@ -797,7 +797,7 @@ function getMainPage() {
     function showKomisyonDetay(detay,toplam){
       var fmt=function(n){return new Intl.NumberFormat('tr-TR').format(Math.round(n));};
       var rows=detay.slice().sort(function(a,b){return b.komTL-a.komTL;}).map(function(d){
-        var isimHtml='<span style="cursor:pointer;color:#1a73e8;text-decoration:underline" onclick="closeModal();openKayitliEdit(\'' +d.hesap_no+ '\')">' + d.isim + '</span>';
+        var isimHtml='<span style="cursor:pointer;color:#1a73e8;text-decoration:underline" onclick="closeModal();openKayitliEdit('+JSON.stringify(d.hesap_no)+')">'+d.isim+'</span>';
         return '<tr><td style="padding:6px 12px">'+isimHtml+'</td><td style="padding:6px 12px;text-align:right">'+fmt(d.kar)+' TL</td><td style="padding:6px 12px;text-align:center">%'+d.oran+'</td><td style="padding:6px 12px;text-align:right;color:#f59e0b;font-weight:bold">'+fmt(d.komTL)+' TL</td></tr>';
       }).join('');
       var html='<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid #334155"><th style="padding:6px 12px;text-align:left">Isim</th><th style="padding:6px 12px;text-align:right">Kar</th><th style="padding:6px 12px;text-align:center">Oran</th><th style="padding:6px 12px;text-align:right">Komisyon</th></tr></thead><tbody>'+rows+'</tbody><tfoot><tr style="border-top:2px solid #334155"><td colspan="3" style="padding:8px 12px;font-weight:bold">TOPLAM</td><td style="padding:8px 12px;text-align:right;color:#f59e0b;font-weight:bold;font-size:1.1em">'+fmt(toplam)+' TL</td></tr></tfoot></table>';
