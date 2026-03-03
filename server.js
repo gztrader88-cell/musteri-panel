@@ -242,14 +242,26 @@ async function syncRdpData() {
 
 initDB().then(async () => {
   await syncRdpData();
-  // Sheets listesinde olmayan fazla kayitlari temizle
-  const fazla = ['7195802','7235569','7231923','7237815'];
-  for (const h of fazla) {
-    try {
-      await pool.query('DELETE FROM musteri_kayit WHERE hesap_no=$1', [h]);
-    } catch(e) {}
-  }
-  console.log('Fazla kayitlar temizlendi');
+  // Sadece bu 71 hesap kalsin, geri hersey silinsin
+  const gecerli71 = [
+    '7197904','7197832','7198743','7189653','7196328','7197811','7203341','7211932',
+    '7220676','7220548','7220666','7220695','7220690','7222015','7230772','7221998',
+    '7227601','7227709','7231831','7231995','7232074','7229339','7231837','7232402',
+    '7234237','7149847','7235405','53659','7236189','7236065','7152100','7192610',
+    '7236029','7236134','7236469','7237612','7237528','7237754','7237833','7237217',
+    '7237934','7238855','7238958','7236167','7239339','7239024','7236798','7235550',
+    '7240771','7240908','7195843','7241368','7241996','7237486','53618','7242011',
+    '7243614','7243582','7243488','7243619','7244161','7189496','99303048','7245343',
+    '7236080','7237690','7247038','53658','7149714','7133687','7134170'
+  ];
+  try {
+    const placeholders = gecerli71.map((_,i) => '$'+(i+1)).join(',');
+    const res = await pool.query(
+      'DELETE FROM musteri_kayit WHERE hesap_no NOT IN ('+placeholders+')',
+      gecerli71
+    );
+    if (res.rowCount > 0) console.log('Fazla kayitlar silindi:', res.rowCount);
+  } catch(e) { console.log('Temizleme hatasi:', e.message); }
 });
 
 // Dolar kuru
