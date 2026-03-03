@@ -1080,20 +1080,20 @@ function getCustomersPage() {
       const user = (c.rdp_kullanici||'').replace(/"/g,'&quot;');
       const sifre = (c.rdp_sifre||'').replace(/"/g,'&quot;');
       return '<div class="rdp-row" onclick="event.stopPropagation()">' +
-        '<button class="rdp-btn rdp-ip" onclick="copyText(this,''+ip+'')" title="IP Kopyala">🖥️ '+c.rdp_ip+'</button>' +
-        '<button class="rdp-btn rdp-user" onclick="copyText(this,''+user+'')" title="Kullanici Kopyala">👤 '+user+'</button>' +
-        '<button class="rdp-btn rdp-pass" onclick="copyText(this,''+sifre+'')" title="Sifre Kopyala">🔑 Sifre</button>' +
+        '<button class="rdp-btn rdp-ip" data-copy="'+ip+'" onclick="event.stopPropagation();copyText(this)">🖥️ '+c.rdp_ip+'</button>' +
+        '<button class="rdp-btn rdp-user" data-copy="'+user+'" onclick="event.stopPropagation();copyText(this)">👤 '+user+'</button>' +
+        '<button class="rdp-btn rdp-pass" data-copy="'+sifre+'" onclick="event.stopPropagation();copyText(this)">🔑 Sifre</button>' +
       '</div>';
     }
 
-    function copyText(btn, text) {
+    function copyText(btn) {
+      const text = btn.dataset.copy;
       const orig = btn.innerHTML;
       const origBg = btn.style.background;
       navigator.clipboard.writeText(text).then(() => {
         btn.innerHTML = '✅ Kopyalandi!';
         btn.style.background = '#16a34a';
-        btn.style.color = '#fff';
-        setTimeout(() => { btn.innerHTML = orig; btn.style.background = origBg; btn.style.color = ''; }, 1500);
+        setTimeout(() => { btn.innerHTML = orig; btn.style.background = origBg; }, 1500);
       }).catch(() => { prompt('Kopyala:', text); });
     }
 
