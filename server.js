@@ -457,6 +457,17 @@ app.put('/api/kayit/:hesap_no', async (req, res) => {
   }
 });
 
+app.delete('/api/musteri/:hesap_no', async (req, res) => {
+  try {
+    const { hesap_no } = req.params;
+    await pool.query('DELETE FROM musteri_kayit WHERE hesap_no=$1', [hesap_no]);
+    await pool.query('DELETE FROM musteriler WHERE hesap_no=$1', [hesap_no]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/kur', async (req, res) => {
   const kur = await getDolarKuru();
   res.json({ kur, marketOpen: isMarketOpen() });
@@ -1040,6 +1051,7 @@ function getCustomersPage() {
       </div>
 
       <div class="btn-row">
+        <button class="btn btn-danger" onclick="deleteCustomer()" style="background:#dc2626;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;margin-right:auto">🗑️ Sil</button>
         <button class="btn btn-secondary" onclick="closeEditModal()">Iptal</button>
         <button class="btn btn-primary" onclick="saveCustomer()">💾 Kaydet</button>
       </div>
@@ -1198,6 +1210,16 @@ function getCustomersPage() {
       }
     }
 
+    async function deleteCustomer(){
+      const hesapNo = document.getElementById('editHesapNo').value;
+      const isim = document.getElementById('editTitle').textContent;
+      if(!confirm(isim+' (#'+hesapNo+') müşteriyi silmek istediğinize emin misiniz?\nBu işlem geri alınamaz!')) return;
+      try {
+        const res = await fetch('/api/musteri/'+hesapNo, {method:'DELETE'});
+        if(res.ok){ closeEditModal(); await loadData(); }
+        else alert('Silme sirasinda hata olustu!');
+      } catch(e){ alert('Baglanti hatasi!'); }
+    }
     function handleModalBackdrop(e){if(e.target===document.getElementById('editModal'))closeEditModal();}
     function closeEditModal(){document.getElementById('editModal').classList.remove('show');}
 
