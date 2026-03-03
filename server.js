@@ -608,6 +608,16 @@ function getMainPage() {
     .sifre-row{display:flex;gap:6px}
     .sifre-row input{flex:1}
     .toggle-sifre{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:0.8rem;white-space:nowrap}
+    .hakodis-panel{background:#fff;margin:0 10px 6px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);overflow:hidden}
+    .hakodis-panel-header{background:#1e40af;color:#fff;padding:8px 12px;font-size:0.75rem;font-weight:600;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+    .hakodis-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:#e5e7eb}
+    .hakodis-cell{background:#fff;padding:10px 12px;text-align:center}
+    .hakodis-cell-full{background:#fff;padding:10px 12px;text-align:center;grid-column:1/-1;border-top:1px solid #e5e7eb}
+    .hakodis-val{font-size:0.95rem;font-weight:700;color:#1a73e8}
+    .hakodis-val.green{color:#16a34a}
+    .hakodis-val.orange{color:#d97706}
+    .hakodis-val.red{color:#dc2626}
+    .hakodis-lbl{font-size:0.6rem;color:#888;margin-top:2px}
   </style>
 </head>
 <body>
@@ -630,6 +640,21 @@ function getMainPage() {
     <div class="stat-card"><div class="stat-value" id="komisyon">-</div><div class="stat-label">Komisyon</div></div>
   </div>
 
+  <div class="hakodis-panel">
+    <div class="hakodis-panel-header" onclick="toggleHakodis()">
+      📊 Hakediş Analizi <span id="hakodisArrow">▼</span>
+    </div>
+    <div id="hakodisBody">
+      <div class="hakodis-grid">
+        <div class="hakodis-cell"><div class="hakodis-val green" id="hHazirKomisyon">-</div><div class="hakodis-lbl">Hakedişe Hazır Komisyon</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val" id="hHazirSayi">-</div><div class="hakodis-lbl">Hazır Kişi Sayısı</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val red" id="hEnUzakPct">-</div><div class="hakodis-lbl">En Uzak Kişi (% artış)</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val orange" id="hTumununIhtiyac">-</div><div class="hakodis-lbl">Herkes İçin Robot Kazanmalı</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val orange" id="hYuzde80Ihtiyac">-</div><div class="hakodis-lbl">%80 İçin Robot Kazanmalı</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val red" id="hEnUzakIsim">-</div><div class="hakodis-lbl">En Uzak Kişi</div></div>
+      </div>
+    </div>
+  </div>
   <div class="alerts" id="alerts"></div>
   <div class="last-update">Son: <span id="lastUpdate">-</span> | Kur: <span id="kurInfo">-</span></div>
 
@@ -801,6 +826,43 @@ function getMainPage() {
       const res=await fetch('/api/kayit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
       if(res.ok){alert('Eklendi!');closeSettings();loadData();}else alert('Hata!');
     }
+
+    function toggleHakodis(){
+      var body=document.getElementById('hakodisBody');
+      var arrow=document.getElementById('hakodisArrow');
+      if(body.style.display==='none'){body.style.display='block';arrow.textContent='▼';}
+      else{body.style.display='none';arrow.textContent='►';}
+    }
+
+    function updateHakodisPanel(liveData, kayitliList) {
+      var kayitliMap={};
+      kayitliList.forEach(function(k){kayitliMap[k.hesap_no]=k;});
+      var musteriler=liveData.map(function(m){
+        var k=kayitliMap[m.hesap_no]||{};
+        return {isim:m.isim||('#'+m.hesap_no),varlik:parseFloat(m.varlik)||0,hakedis:parseFloat(k.hakedis_miktari)||0,komisyon_orani:parseFloat(k.komisyon_orani)||25,es_dost:k.es_dost||false};
+      }).filter(function(m){return m.hakedis>0&&m.varlik>0;});
+      var hazirlar=musteriler.filter(function(m){return m.varlik>=m.hakedis;});
+      var hazirKomisyon=hazirlar.reduce(function(s,m){if(m.es_dost)return s;return s+(m.varlik-m.hakedis)*(m.komisyon_orani/100);},0);
+      var hazirDegil=musteriler.filter(function(m){return m.varlik<m.hakedis;});
+      var ihtiyaclar=hazirDegil.map(function(m){return {isim:m.isim,ihtiyac:m.hakedis-m.varlik,pct:((m.hakedis-m.varlik)/m.varlik)*100};}).sort(function(a,b){return b.pct-a.pct;});
+      var tumIhtiyac=ihtiyaclar.reduce(function(s,m){return s+m.ihtiyac;},0);
+      var sirali=[].concat(ihtiyaclar).sort(function(a,b){return a.ihtiyac-b.ihtiyac;});
+      var hedef80=Math.ceil(hazirDegil.length*0.8);
+      var yuzde80Ihtiyac=sirali.slice(0,hedef80).reduce(function(s,m){return s+m.ihtiyac;},0);
+      var enUzak=ihtiyaclar[0];
+      document.getElementById('hHazirKomisyon').textContent=formatMoney(hazirKomisyon)+' TL';
+      document.getElementById('hHazirSayi').textContent=hazirlar.length+' kisi';
+      document.getElementById('hTumununIhtiyac').textContent=formatMoney(tumIhtiyac)+' TL';
+      document.getElementById('hYuzde80Ihtiyac').textContent=formatMoney(yuzde80Ihtiyac)+' TL';
+      if(enUzak){
+        document.getElementById('hEnUzakPct').textContent='%'+enUzak.pct.toFixed(1)+' artis';
+        document.getElementById('hEnUzakIsim').textContent=enUzak.isim;
+      } else {
+        document.getElementById('hEnUzakPct').textContent='-';
+        document.getElementById('hEnUzakIsim').textContent='Herkes hazir!';
+      }
+    }
+
     async function loadData() {
       try {
         const [dataRes,kurRes,kayitliRes]=await Promise.all([fetch('/api/musteriler'),fetch('/api/kur'),fetch('/api/kayitli')]);
@@ -826,6 +888,7 @@ function getMainPage() {
         document.getElementById('komisyon').textContent=(totalKomisyon>=0?'+':'')+formatMoney(totalKomisyon);
         document.getElementById('komisyon').className='stat-value '+(totalKomisyon>=0?'positive':'negative');
         document.getElementById('lastUpdate').textContent=new Date().toLocaleString('tr-TR');
+        updateHakodisPanel(allData, kayitliData);
         document.getElementById('kurInfo').textContent='$1 = '+DOLAR_KURU.toFixed(2)+' TL';
         const majPos=getMajorityPosition(allData);
         const posIssues=allData.filter(c=>(c.acik_pozisyon||0)!==majPos);
