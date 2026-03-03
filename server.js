@@ -1049,11 +1049,34 @@ function getCustomersPage() {
 
     function makeRdpLink(c) {
       if (!c.rdp_ip) return '';
-      // rdp:// protokolü ile Windows Remote Desktop'u acar
-      const ip = encodeURIComponent(c.rdp_ip);
-      const user = c.rdp_kullanici ? encodeURIComponent(c.rdp_kullanici) : '';
-      let href = 'rdp://full%20address=s:' + ip + (user ? '&username=s:' + user : '');
-      return '<a class="rdp-btn" href="' + href + '" onclick="event.stopPropagation()">🖥️ Sunucuya Baglan</a>';
+      const ip = c.rdp_ip;
+      const user = c.rdp_kullanici || '';
+      const sifre = c.rdp_sifre || '';
+      const copyText = ip + (user ? ' | ' + user : '') + (sifre ? ' | ' + sifre : '');
+      return '<button class="rdp-btn" onclick="event.stopPropagation();copyRdp(this,\''+ip+'\',\''+user+'\',\''+sifre+'\')">' +
+             '🖥️ ' + ip + '</button>';
+    }
+
+    function copyRdp(btn, ip, user, sifre) {
+      navigator.clipboard.writeText(ip).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '✅ Kopyalandi!';
+        btn.style.background = '#16a34a';
+        // Sifre de panoya yazilsin (ikinci kopyalama icin tooltip goster)
+        if (sifre) {
+          setTimeout(() => {
+            navigator.clipboard.writeText(sifre);
+            btn.innerHTML = '🔑 Sifre kopyalandi!';
+            btn.style.background = '#7c3aed';
+            setTimeout(() => { btn.innerHTML = orig; btn.style.background = ''; }, 1500);
+          }, 1500);
+        } else {
+          setTimeout(() => { btn.innerHTML = orig; btn.style.background = ''; }, 1500);
+        }
+      }).catch(() => {
+        // Fallback: prompt ile goster
+        prompt('IP adresini kopyala:', ip);
+      });
     }
 
     function setFilter(filter,btn){currentFilter=filter;document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderCards();}
