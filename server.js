@@ -915,7 +915,11 @@ function getCustomersPage() {
     .card-stat-value{font-size:0.8rem;font-weight:600}
     .card-stat-label{font-size:0.6rem;color:#94a3b8;margin-top:1px}
     .card-footer{margin-top:8px;display:flex;justify-content:space-between;align-items:center;font-size:0.7rem;color:#94a3b8}
-    .rdp-btn{display:inline-flex;align-items:center;gap:4px;background:#0ea5e9;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:0.72rem;cursor:pointer;margin-top:8px;text-decoration:none}
+    .rdp-row{display:flex;gap:4px;margin-top:8px}
+    .rdp-btn{flex:1;padding:5px 6px;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.7rem;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+    .rdp-ip{background:#0ea5e9}
+    .rdp-user{background:#0ea5e9}
+    .rdp-pass{background:#7c3aed}
     .rdp-btn:hover{background:#0284c7}
     .positive{color:#0d9488}.negative{color:#dc2626}
     .filter-bar{padding:8px 10px;display:flex;gap:6px;overflow-x:auto;background:#fff;border-bottom:1px solid #eee}
@@ -1072,35 +1076,25 @@ function getCustomersPage() {
 
     function makeRdpLink(c) {
       if (!c.rdp_ip) return '';
-      // data attribute ile ozel karakterleri guvende tut
       const ip = (c.rdp_ip||'').replace(/"/g,'&quot;');
       const user = (c.rdp_kullanici||'').replace(/"/g,'&quot;');
       const sifre = (c.rdp_sifre||'').replace(/"/g,'&quot;');
-      return '<button class="rdp-btn" ' +
-             'data-ip="'+ip+'" data-user="'+user+'" data-sifre="'+sifre+'" ' +
-             'onclick="event.stopPropagation();copyRdp(this)">🖥️ ' + (c.rdp_ip) + '</button>';
+      return '<div class="rdp-row" onclick="event.stopPropagation()">' +
+        '<button class="rdp-btn rdp-ip" onclick="copyText(this,''+ip+'')" title="IP Kopyala">🖥️ '+c.rdp_ip+'</button>' +
+        '<button class="rdp-btn rdp-user" onclick="copyText(this,''+user+'')" title="Kullanici Kopyala">👤 '+user+'</button>' +
+        '<button class="rdp-btn rdp-pass" onclick="copyText(this,''+sifre+'')" title="Sifre Kopyala">🔑 Sifre</button>' +
+      '</div>';
     }
 
-    function copyRdp(btn) {
-      const ip = btn.dataset.ip;
-      const sifre = btn.dataset.sifre;
+    function copyText(btn, text) {
       const orig = btn.innerHTML;
-      navigator.clipboard.writeText(ip).then(() => {
-        btn.innerHTML = '✅ IP kopyalandi!';
+      const origBg = btn.style.background;
+      navigator.clipboard.writeText(text).then(() => {
+        btn.innerHTML = '✅ Kopyalandi!';
         btn.style.background = '#16a34a';
-        if (sifre) {
-          setTimeout(() => {
-            navigator.clipboard.writeText(sifre);
-            btn.innerHTML = '🔑 Sifre kopyalandi!';
-            btn.style.background = '#7c3aed';
-            setTimeout(() => { btn.innerHTML = orig; btn.style.background = ''; }, 1500);
-          }, 1500);
-        } else {
-          setTimeout(() => { btn.innerHTML = orig; btn.style.background = ''; }, 1500);
-        }
-      }).catch(() => {
-        prompt('IP adresini kopyala:', ip);
-      });
+        btn.style.color = '#fff';
+        setTimeout(() => { btn.innerHTML = orig; btn.style.background = origBg; btn.style.color = ''; }, 1500);
+      }).catch(() => { prompt('Kopyala:', text); });
     }
 
     function setFilter(filter,btn){currentFilter=filter;document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderCards();}
