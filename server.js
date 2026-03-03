@@ -486,7 +486,8 @@ app.get('/api/export', async (req, res) => {
     const result = await pool.query(`
       SELECT m.hesap_no, m.isim, m.varlik, m.bugun_kar, m.bugun_yuzde, m.acik_pozisyon,
              m.kapali_pozisyon, m.buyukluk, m.toplam_yuzde, m.son_guncelleme,
-             k.baslangic_parasi, k.komisyon_orani, k.para_birimi, k.es_dost, k.aktif, k.created_at
+             k.baslangic_parasi, k.hakedis_miktari, k.komisyon_orani, k.para_birimi, k.es_dost, k.aktif, k.created_at,
+             k.rdp_ip, k.rdp_kullanici, k.rdp_sifre
       FROM musteri_kayit k
       LEFT JOIN musteriler m ON k.hesap_no = m.hesap_no
       ORDER BY COALESCE(m.varlik, 0) DESC
@@ -503,18 +504,19 @@ app.get('/api/export', async (req, res) => {
       return (varlik - baslangic) * oran;
     }
 
-    const headers = ['Hesap No','Isim','Para Birimi','Varlik','Baslangic Parasi','Komisyon Orani %','Komisyon TL','Bugun Kar','Bugun %','Acik Pozisyon','Es Dost','Aktif','Son Guncelleme','Kayit Tarihi'];
+    const headers = ['Hesap No','Isim','Para Birimi','Varlik','Baslangic Parasi','Hakedis','Komisyon Orani %','Komisyon TL','Bugun Kar','Bugun %','Acik Pozisyon','Es Dost','Aktif','Son Guncelleme','Kayit Tarihi','RDP IP','RDP Kullanici','RDP Sifre'];
     const csvRows = rows.map(c => {
       const komisyon = calcKom(c);
       return [
         c.hesap_no, c.isim||'', c.para_birimi||'TL',
-        c.varlik||'', c.baslangic_parasi||'', c.komisyon_orani||'',
+        c.varlik||'', c.baslangic_parasi||'', c.hakedis_miktari||'', c.komisyon_orani||'',
         komisyon > 0 ? Math.round(komisyon) : '',
         c.bugun_kar||'', c.bugun_yuzde||'', c.acik_pozisyon||'',
         c.es_dost ? 'Evet' : 'Hayir',
         c.aktif !== false ? 'Evet' : 'Hayir',
         c.son_guncelleme ? new Date(c.son_guncelleme).toLocaleString('tr-TR') : '',
-        c.created_at ? new Date(c.created_at).toLocaleString('tr-TR') : ''
+        c.created_at ? new Date(c.created_at).toLocaleString('tr-TR') : '',
+        c.rdp_ip||'', c.rdp_kullanici||'', c.rdp_sifre||''
       ].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',');
     });
 
