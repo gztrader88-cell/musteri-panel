@@ -750,6 +750,7 @@ function getMainPage() {
 
   <script>
     let allData = [];
+    let majPos = 0, mean = 0, stdDev = 0;
     let kayitliData = [];
     let DOLAR_KURU = 43;
     let MARKET_OPEN = true;
@@ -909,14 +910,12 @@ function getMainPage() {
         document.getElementById('todayProfit').className='stat-value '+(todayProfit>=0?'positive':'negative');
         document.getElementById('avgPct').textContent=(avgPct>=0?'+':'')+avgPct.toFixed(2)+'%';
         document.getElementById('avgPct').className='stat-value '+(avgPct>=0?'positive':'negative');
-        document.getElementById('komisyon').textContent=(totalKomisyon>=0?'+':'')+formatMoney(totalKomisyon);
-        document.getElementById('komisyon').className='stat-value '+(totalKomisyon>=0?'positive':'negative');
         document.getElementById('lastUpdate').textContent=new Date().toLocaleString('tr-TR');
         updateHakodisPanel(allData, kayitliData);
         document.getElementById('kurInfo').textContent='$1 = '+DOLAR_KURU.toFixed(2)+' TL';
-        const majPos=getMajorityPosition(allData);
+        majPos=getMajorityPosition(allData);
         const posIssues=allData.filter(c=>(c.acik_pozisyon||0)!==majPos);
-        const {mean,stdDev}=getStdDev(allData);
+        ({mean,stdDev}=getStdDev(allData));
         const outliers=allData.filter(c=>Math.abs((parseFloat(c.bugun_yuzde)||0)-mean)>stdDev*2);
         const gelenIDs=allData.map(m=>m.hesap_no);
         const gelmeyenler=kayitliData.filter(k=>k.aktif!==false&&!gelenIDs.includes(k.hesap_no));
