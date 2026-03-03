@@ -72,7 +72,6 @@ async function insertInitialCustomers() {
     ['7197832', 530194,  530194,  25, 'TL',  false, '45.10.151.156:1414', 'Administrator', '*5S34z]fWlFo1C'],
     ['7198743', 1186432, 1186432, 25, 'TL',  false, '45.10.151.237:1414', 'Administrator', 'oZy9Ha6TPHFCUJ7O'],
     ['7189653', 651271,  651271,  25, 'TL',  false, '185.86.4.103',       'Administrator', '59ifjWHR9q'],
-    ['7195802', 273114,  273114,  25, 'TL',  false, null, null, null],
     ['7196328', 362313,  362313,  25, 'TL',  false, '37.247.99.113',      'Administrator', 'nyd53G5cEVmy'],
     ['7197811', 281661,  281661,  25, 'TL',  false, '185.86.4.83',        'Administrator', 'gN2BZ5r62x'],
     ['7203341', 1805322, 1805322, 20, 'TL',  false, '185.86.4.28',        'administrator', '2TMD7qR35g'],
@@ -96,7 +95,6 @@ async function insertInitialCustomers() {
     ['7234237', 270110,  270110,  25, 'TL',  false, '45.143.99.10',       'administrator', 'Busra200825'],
     ['7149847', 300000,  300000,  25, 'TL',  false, '37.247.99.30',       'administrator', '6FY6a2cw7vQC'],
     ['7235405', 500000,  500000,  25, 'TL',  false, '193.38.34.188',      'administrator', 'Turkoz170925'],
-    ['7235569', 250000,  250000,  25, 'TL',  false, null, null, null],
     ['53659',   250000,  250000,  25, 'TL',  false, '193.38.34.128',      'administrator', 'Zeynep180925'],
     ['7236189', 150000,  150000,  25, 'TL',  false, '78.135.87.117',      'administrator', 'Mursel190925'],
     ['7236065', 350000,  350000,  25, 'TL',  false, '78.135.87.98',       'administrator', 'Okan190925'],
@@ -105,13 +103,11 @@ async function insertInitialCustomers() {
     ['7236029', 250000,  250000,  25, 'TL',  false, '77.92.154.85',       'administrator', 'Serkan180925'],
     ['7236134', 327430,  327430,  25, 'TL',  false, '193.38.34.176',      'administrator', 'Engin031025'],
     ['7236469', 250933,  250933,  25, 'TL',  false, '193.38.34.11',       'administrator', 'Mustafa061025'],
-    ['7231923', 850249,  850249,  25, 'TL',  false, null, null, null],
     ['7237612', 273386,  273386,  25, 'TL',  false, '193.38.34.12',       'administrator', 'Serkan101025'],
     ['7237528', 601262,  601262,  25, 'TL',  false, '77.92.154.194',      'administrator', 'Levent131025'],
     ['7237754', 990577,  990577,  20, 'TL',  false, '193.38.34.70',       'administrator', 'Onur101425'],
     ['7237833', 250000,  250000,  25, 'TL',  false, '77.92.154.94',       'administrator', 'Ali141025'],
     ['7237217', 250000,  250000,  25, 'TL',  false, '77.92.154.49',       'administrator', 'Caglar151025'],
-    ['7237815', 288013,  288013,  25, 'TL',  false, null, null, null],
     ['7237934', 271669,  271669,  25, 'TL',  false, '193.38.34.221',      'administrator', 'Mesut161025'],
     ['7238855', 450000,  450000,  25, 'TL',  false, '45.143.99.54',       'administrator', 'Engin311025'],
     ['7238958', 250000,  250000,  25, 'TL',  false, '213.238.182.41',     'administrator', 'Mehmet311025'],
@@ -244,7 +240,17 @@ async function syncRdpData() {
   if (updated > 0) console.log('RDP bilgisi guncellendi:', updated, 'musteri');
 }
 
-initDB().then(() => syncRdpData());
+initDB().then(async () => {
+  await syncRdpData();
+  // Sheets listesinde olmayan fazla kayitlari temizle
+  const fazla = ['7195802','7235569','7231923','7237815'];
+  for (const h of fazla) {
+    try {
+      await pool.query('DELETE FROM musteri_kayit WHERE hesap_no=$1', [h]);
+    } catch(e) {}
+  }
+  console.log('Fazla kayitlar temizlendi');
+});
 
 // Dolar kuru
 let cachedKur = { value: 43, timestamp: 0 };
