@@ -636,8 +636,7 @@ function getMainPage() {
     <div class="stat-card"><div class="stat-value" id="activeCustomers">-</div><div class="stat-label">Aktif</div></div>
     <div class="stat-card"><div class="stat-value" id="totalBalance">-</div><div class="stat-label">Toplam Varlik</div></div>
     <div class="stat-card"><div class="stat-value" id="todayProfit">-</div><div class="stat-label">Bugun Kar</div></div>
-    <div class="stat-card"><div class="stat-value" id="avgPct">-</div><div class="stat-label">Ort %</div></div>
-    <div class="stat-card"><div class="stat-value" id="komisyon">-</div><div class="stat-label">Komisyon</div></div>
+    <div class="stat-card"><div class="stat-value" id="avgPct">-</div><div class="stat-label">Bugün Ort %</div></div>
   </div>
 
   <div class="hakodis-panel">
@@ -646,11 +645,10 @@ function getMainPage() {
     </div>
     <div id="hakodisBody">
       <div class="hakodis-grid">
-        <div class="hakodis-cell"><div class="hakodis-val green" id="hHazirKomisyon" style="cursor:pointer" title="Detay için tıkla">-</div><div class="hakodis-lbl">Hakedişe Hazır Komisyon</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val orange" id="hTumununIhtiyac" style="font-size:0.8rem">-</div><div class="hakodis-lbl">Herkes Hakedişe Ulaşır</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val red" id="hEnUzakIsim" style="cursor:pointer" title="Detay için tıkla">-</div><div class="hakodis-lbl">En Uzak Kişi</div></div>
-        <div style="display:none"><div id="hHazirSayi"></div><div id="hEnUzakPct"></div></div>
-        <div class="hakodis-cell" id="hYuzde80Cell"><div class="hakodis-val orange" id="hYuzde80Ihtiyac" style="font-size:0.8rem">-</div><div class="hakodis-lbl">%80 Hakedişe Ulaşır</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val green" id="hHazirKomisyon" style="cursor:pointer;font-size:1.1rem" title="Detay için tıkla">-</div><div class="hakodis-lbl">Hakedişe hazır komisyon</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val orange" id="hTumununIhtiyac" style="cursor:pointer;font-size:1.3rem;font-weight:800" title="Detay için tıkla">-</div><div class="hakodis-lbl">Herkesin hakedişe ulaşması için gereken artış</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val orange" id="hYuzde80Ihtiyac" style="font-size:1.3rem;font-weight:800">-</div><div class="hakodis-lbl">Müşterilerin %80'inin hakedişe ulaşması için gereken artış</div></div>
+        <div style="display:none"><div id="hHazirSayi"></div><div id="hEnUzakPct"></div><div id="hEnUzakIsim"></div></div>
       </div>
     </div>
   </div>
@@ -658,6 +656,7 @@ function getMainPage() {
   <div class="last-update">Son: <span id="lastUpdate">-</span> | Kur: <span id="kurInfo">-</span></div>
 
   <div class="container">
+    <div style="padding:10px 0 8px 0"><input type="text" id="mainSearch" placeholder="İsim veya hesap no ara..." oninput="filterMainTable()" style="width:100%;padding:9px 14px;border:1px solid #ddd;border-radius:20px;font-size:0.85rem;outline:none;box-sizing:border-box"></div>
     <div class="table-wrapper">
       <table>
         <thead>
@@ -788,6 +787,7 @@ function getMainPage() {
       document.getElementById('modalList').innerHTML=items.map(i=>'<li>'+i+'</li>').join('');
       document.getElementById('modal').classList.add('show');
     }
+    function filterMainTable(){renderMainTable(allData);}
     function showKomisyonDetay(detay,toplam){
       var fmt=function(n){return new Intl.NumberFormat('tr-TR').format(Math.round(n));};
       var rows=detay.slice().sort(function(a,b){return b.komTL-a.komTL;}).map(function(d){
@@ -864,13 +864,14 @@ function getMainPage() {
       document.getElementById('hHazirKomisyon').onclick=function(){showKomisyonDetay(hazirDetay,hazirKomisyon);};
       document.getElementById('hHazirSayi').textContent=hazirlar.length+' kisi';
       if(enUzak){
-        document.getElementById('hTumununIhtiyac').textContent='%'+enUzak.pct.toFixed(1)+' artista herkes hakedise ulasir';
+        document.getElementById('hTumununIhtiyac').textContent='%'+enUzak.pct.toFixed(1);
+        document.getElementById('hTumununIhtiyac').onclick=function(){showModal('En Uzak Kişi - '+enUzak.isim,['Hakedişe ulaşmak için %'+enUzak.pct.toFixed(1)+' artış gerekiyor']);};
       } else {
         document.getElementById('hTumununIhtiyac').textContent='Herkes hakedis ustunde';
         document.getElementById('hTumununIhtiyac').style.color='#16a34a';
       }
       if(kisi80){
-        document.getElementById('hYuzde80Ihtiyac').textContent='%'+kisi80.pct.toFixed(1)+' artista %80 hakedis ustunde olur';
+        document.getElementById('hYuzde80Ihtiyac').textContent='%'+kisi80.pct.toFixed(1);
       } else {
         document.getElementById('hYuzde80Ihtiyac').textContent='%80 zaten hakedis ustunde';
         document.getElementById('hYuzde80Ihtiyac').style.color='#16a34a';
@@ -933,9 +934,14 @@ function getMainPage() {
           if(outliers.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: '+outliers.length+'</button>';
         }
         document.getElementById('alerts').innerHTML=alertsHtml;
+        renderMainTable(allData);
+      }
+      function renderMainTable(data){
+        var q=(document.getElementById('mainSearch')||{value:''}).value.toLowerCase();
+        var filtered=q?data.filter(function(c){return (c.isim||'').toLowerCase().includes(q)||(c.hesap_no||'').toString().includes(q);}):data;
         const tbody=document.getElementById('customerTable');
-        if(allData.length===0){tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:30px">Veri bekleniyor...</td></tr>';return;}
-        tbody.innerHTML=allData.map(c=>{
+        if(filtered.length===0){tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:30px">Sonuç bulunamadı</td></tr>';return;}
+        tbody.innerHTML=filtered.map(c=>{
           const active=isActive(c.son_guncelleme);
           const bugunKar=parseFloat(c.bugun_kar)||0;
           const bugunPct=parseFloat(c.bugun_yuzde)||0;
