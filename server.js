@@ -53,6 +53,7 @@ async function initDB() {
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_ip VARCHAR(100)`);
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_kullanici VARCHAR(100)`);
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_sifre VARCHAR(200)`);
+    await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS sozlesme_link TEXT`);
 
     console.log('Tablolar hazir');
 
@@ -446,10 +447,10 @@ app.post('/api/kayit', async (req, res) => {
 app.put('/api/kayit/:hesap_no', async (req, res) => {
   try {
     const { hesap_no } = req.params;
-    const { baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, aktif, rdp_ip, rdp_kullanici, rdp_sifre } = req.body;
+    const { baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, aktif, rdp_ip, rdp_kullanici, rdp_sifre, sozlesme_link } = req.body;
     await pool.query(
-      'UPDATE musteri_kayit SET baslangic_parasi=$1, hakedis_miktari=$2, komisyon_orani=$3, para_birimi=$4, es_dost=$5, aktif=$6, rdp_ip=$7, rdp_kullanici=$8, rdp_sifre=$9 WHERE hesap_no=$10',
-      [baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, aktif, rdp_ip||null, rdp_kullanici||null, rdp_sifre||null, hesap_no]
+      'UPDATE musteri_kayit SET baslangic_parasi=$1, hakedis_miktari=$2, komisyon_orani=$3, para_birimi=$4, es_dost=$5, aktif=$6, rdp_ip=$7, rdp_kullanici=$8, rdp_sifre=$9, sozlesme_link=$10 WHERE hesap_no=$11',
+      [baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, aktif, rdp_ip||null, rdp_kullanici||null, rdp_sifre||null, sozlesme_link||null, hesap_no]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -504,7 +505,7 @@ app.get('/api/export', async (req, res) => {
       return (varlik - baslangic) * oran;
     }
 
-    const headers = ['Hesap No','Isim','Para Birimi','Varlik','Baslangic Parasi','Hakedis','Komisyon Orani %','Komisyon TL','Bugun Kar','Bugun %','Acik Pozisyon','Es Dost','Aktif','Son Guncelleme','Kayit Tarihi','RDP IP','RDP Kullanici','RDP Sifre'];
+    const headers = ['Hesap No','Isim','Para Birimi','Varlik','Baslangic Parasi','Hakedis','Komisyon Orani %','Komisyon TL','Bugun Kar','Bugun %','Acik Pozisyon','Es Dost','Aktif','Sozlesme','Son Guncelleme','Kayit Tarihi','RDP IP','RDP Kullanici','RDP Sifre'];
     const csvRows = rows.map(c => {
       const komisyon = calcKom(c);
       return [
@@ -516,7 +517,7 @@ app.get('/api/export', async (req, res) => {
         c.aktif !== false ? 'Evet' : 'Hayir',
         c.son_guncelleme ? new Date(c.son_guncelleme).toLocaleString('tr-TR') : '',
         c.created_at ? new Date(c.created_at).toLocaleString('tr-TR') : '',
-        c.rdp_ip||'', c.rdp_kullanici||'', c.rdp_sifre||''
+        c.sozlesme_link||'', c.rdp_ip||'', c.rdp_kullanici||'', c.rdp_sifre||''
       ].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',');
     });
 
@@ -976,6 +977,7 @@ function getCustomersPage() {
     <button class="filter-btn" onclick="setFilter('inactive', this)">Pasif <span class="count-badge" id="countInactive">0</span></button>
     <button class="filter-btn" onclick="setFilter('esdost', this)">Es-Dost <span class="count-badge" id="countEsDost">0</span></button>
     <button class="filter-btn" onclick="setFilter('kayitsiz', this)">Kayitsiz <span class="count-badge" id="countKayitsiz">0</span></button>
+    <button class="filter-btn" onclick="setFilter('sozlesmesiz', this)">Sozlesmesiz <span class="count-badge" id="countSozlesmesiz">0</span></button>
   </div>
 
   <div class="customer-grid" id="customerGrid">
@@ -1056,6 +1058,14 @@ function getCustomersPage() {
         </div>
       </div>
 
+      <div class="form-group">
+        <label>📄 Sözleşme Linki (Google Drive)</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="text" id="editSozlesme" placeholder="https://drive.google.com/..." style="flex:1">
+          <a id="sozlesmeAc" href="#" target="_blank" style="display:none;background:#16a34a;color:#fff;border:none;padding:7px 10px;border-radius:6px;font-size:0.8rem;text-decoration:none;white-space:nowrap">📄 Aç</a>
+        </div>
+      </div>
+
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="closeEditModal()">Iptal</button>
         <button class="btn btn-primary" onclick="saveCustomer()">💾 Kaydet</button>
@@ -1109,6 +1119,7 @@ function getCustomersPage() {
         return kayitliCustomers.filter(k=>!gelenIDs.includes(k.hesap_no)).filter(k=>!search||k.hesap_no.toLowerCase().includes(search));
       }
       let data=[...allCustomers];
+      if(currentFilter==='sozlesmesiz')return data.filter(c=>!c.sozlesme_link);
       if(currentFilter==='active')data=data.filter(c=>isActive(c.son_guncelleme)===true);
       else if(currentFilter==='inactive')data=data.filter(c=>isActive(c.son_guncelleme)===false);
       else if(currentFilter==='esdost')data=data.filter(c=>c.es_dost);
@@ -1123,6 +1134,7 @@ function getCustomersPage() {
       document.getElementById('countInactive').textContent=allCustomers.filter(c=>isActive(c.son_guncelleme)===false).length;
       document.getElementById('countEsDost').textContent=allCustomers.filter(c=>c.es_dost).length;
       document.getElementById('countKayitsiz').textContent=kayitliCustomers.filter(k=>!gelenIDs.includes(k.hesap_no)).length;
+      document.getElementById('countSozlesmesiz').textContent=allCustomers.filter(c=>!c.sozlesme_link).length;
     }
 
     let cardDataMap = {};
@@ -1154,6 +1166,7 @@ function getCustomersPage() {
         return '<div class="'+cardClass+'" onclick="openEditModal(cardDataMap['+i+'])">' +
           '<div class="card-header"><div><div class="card-name">'+(c.isim||'#'+c.hesap_no)+'</div><div class="card-id">#'+c.hesap_no+' · '+(c.para_birimi||'TL')+'</div></div>'+
           '<span class="card-badge'+(c.es_dost?' es-dost-badge':'')+'">'+statusText+'</span></div>'+
+          (c.sozlesme_link ? '<a href="'+c.sozlesme_link+'" target="_blank" onclick="event.stopPropagation()" style="font-size:1rem;text-decoration:none;margin-left:4px" title="Sozlesme Var">📄</a>' : '<span style="font-size:1rem;opacity:0.35;margin-left:4px" title="Sozlesme Yok">📋</span>')+
           '<div class="card-stats">'+
             '<div class="card-stat"><div class="card-stat-value">'+formatMoney(c.varlik)+'</div><div class="card-stat-label">Varlik</div></div>'+
             '<div class="card-stat"><div class="card-stat-value '+(bugunKar>=0?'positive':'negative')+'">'+(bugunKar>=0?'+':'')+formatMoney(bugunKar)+'</div><div class="card-stat-label">Bugun</div></div>'+
@@ -1184,6 +1197,13 @@ function getCustomersPage() {
       document.getElementById('editRdpKullanici').value=c.rdp_kullanici||'';
       document.getElementById('editRdpSifre').value=c.rdp_sifre||'';
       document.getElementById('editRdpSifre').type='password';
+      const sozLink = c.sozlesme_link||'';
+      document.getElementById('editSozlesme').value=sozLink;
+      const sozBtn = document.getElementById('sozlesmeAc');
+      if(sozLink){ sozBtn.style.display='inline-block'; sozBtn.href=sozLink; } else { sozBtn.style.display='none'; }
+      document.getElementById('editSozlesme').oninput=function(){
+        if(this.value){ sozBtn.style.display='inline-block'; sozBtn.href=this.value; } else { sozBtn.style.display='none'; }
+      };
       updateKomisyonBilgi(c);
       document.getElementById('editBaslangic').oninput=function(){updateKomisyonBilgi({...c,baslangic_parasi:this.value,komisyon_orani:document.getElementById('editKomisyon').value,para_birimi:document.getElementById('editParaBirimi').value});};
       document.getElementById('editKomisyon').onchange=function(){updateKomisyonBilgi({...c,baslangic_parasi:document.getElementById('editBaslangic').value,komisyon_orani:this.value,para_birimi:document.getElementById('editParaBirimi').value});};
@@ -1219,7 +1239,8 @@ function getCustomersPage() {
         aktif:document.getElementById('editAktif').checked,
         rdp_ip:document.getElementById('editRdpIp').value||null,
         rdp_kullanici:document.getElementById('editRdpKullanici').value||null,
-        rdp_sifre:document.getElementById('editRdpSifre').value||null
+        rdp_sifre:document.getElementById('editRdpSifre').value||null,
+        sozlesme_link:document.getElementById('editSozlesme').value||null
       };
       try{
         const res=await fetch('/api/kayit/'+hesap_no,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
