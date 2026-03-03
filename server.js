@@ -1051,7 +1051,6 @@ function getCustomersPage() {
       </div>
 
       <div class="btn-row">
-        <button class="btn btn-danger" onclick="deleteCustomer()" style="background:#dc2626;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;margin-right:auto">🗑️ Sil</button>
         <button class="btn btn-secondary" onclick="closeEditModal()">Iptal</button>
         <button class="btn btn-primary" onclick="saveCustomer()">💾 Kaydet</button>
       </div>
@@ -1210,16 +1209,6 @@ function getCustomersPage() {
       }
     }
 
-    async function deleteCustomer(){
-      const hesapNo = document.getElementById('editHesapNo').value;
-      const isim = document.getElementById('editTitle').textContent;
-      if(!confirm(isim+' (#'+hesapNo+') müşteriyi silmek istediğinize emin misiniz?\nBu işlem geri alınamaz!')) return;
-      try {
-        const res = await fetch('/api/musteri/'+hesapNo, {method:'DELETE'});
-        if(res.ok){ closeEditModal(); await loadData(); }
-        else alert('Silme sirasinda hata olustu!');
-      } catch(e){ alert('Baglanti hatasi!'); }
-    }
     function handleModalBackdrop(e){if(e.target===document.getElementById('editModal'))closeEditModal();}
     function closeEditModal(){document.getElementById('editModal').classList.remove('show');}
 
