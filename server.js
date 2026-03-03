@@ -1049,20 +1049,22 @@ function getCustomersPage() {
 
     function makeRdpLink(c) {
       if (!c.rdp_ip) return '';
-      const ip = c.rdp_ip;
-      const user = c.rdp_kullanici || '';
-      const sifre = c.rdp_sifre || '';
-      const copyText = ip + (user ? ' | ' + user : '') + (sifre ? ' | ' + sifre : '');
-      return '<button class="rdp-btn" onclick="event.stopPropagation();copyRdp(this,\''+ip+'\',\''+user+'\',\''+sifre+'\')">' +
-             '🖥️ ' + ip + '</button>';
+      // data attribute ile ozel karakterleri guvende tut
+      const ip = (c.rdp_ip||'').replace(/"/g,'&quot;');
+      const user = (c.rdp_kullanici||'').replace(/"/g,'&quot;');
+      const sifre = (c.rdp_sifre||'').replace(/"/g,'&quot;');
+      return '<button class="rdp-btn" ' +
+             'data-ip="'+ip+'" data-user="'+user+'" data-sifre="'+sifre+'" ' +
+             'onclick="event.stopPropagation();copyRdp(this)">🖥️ ' + (c.rdp_ip) + '</button>';
     }
 
-    function copyRdp(btn, ip, user, sifre) {
+    function copyRdp(btn) {
+      const ip = btn.dataset.ip;
+      const sifre = btn.dataset.sifre;
+      const orig = btn.innerHTML;
       navigator.clipboard.writeText(ip).then(() => {
-        const orig = btn.innerHTML;
-        btn.innerHTML = '✅ Kopyalandi!';
+        btn.innerHTML = '✅ IP kopyalandi!';
         btn.style.background = '#16a34a';
-        // Sifre de panoya yazilsin (ikinci kopyalama icin tooltip goster)
         if (sifre) {
           setTimeout(() => {
             navigator.clipboard.writeText(sifre);
@@ -1074,7 +1076,6 @@ function getCustomersPage() {
           setTimeout(() => { btn.innerHTML = orig; btn.style.background = ''; }, 1500);
         }
       }).catch(() => {
-        // Fallback: prompt ile goster
         prompt('IP adresini kopyala:', ip);
       });
     }
@@ -1105,11 +1106,15 @@ function getCustomersPage() {
       document.getElementById('countKayitsiz').textContent=kayitliCustomers.filter(k=>!gelenIDs.includes(k.hesap_no)).length;
     }
 
+    let cardDataMap = {};
+
     function renderCards(){
       const data=getFilteredData();
       const grid=document.getElementById('customerGrid');
       if(data.length===0){grid.innerHTML='<div class="no-data">Musteri bulunamadi</div>';return;}
-      grid.innerHTML=data.map(c=>{
+      cardDataMap={};
+      grid.innerHTML=data.map((c,i)=>{
+        cardDataMap[i]=c;
         const active=isActive(c.son_guncelleme);
         const bugunKar=parseFloat(c.bugun_kar)||0;
         const bugunPct=parseFloat(c.bugun_yuzde)||0;
@@ -1121,13 +1126,13 @@ function getCustomersPage() {
         else if(active===false){cardClass+=' inactive';statusText='Pasif';}
         else{cardClass+=' neutral';statusText='Piyasa Kapali';}
         if(!c.varlik&&c.baslangic_parasi){
-          return '<div class="'+cardClass+'" onclick="openEditModal('+JSON.stringify(c).replace(/"/g,'&quot;')+')">' +
+          return '<div class="'+cardClass+'" onclick="openEditModal(cardDataMap['+i+'])">' +
             '<div class="card-header"><div><div class="card-name">#'+c.hesap_no+'</div><div class="card-id">Canli veri bekleniyor</div></div><span class="card-badge">Kayitli</span></div>'+
             '<div class="info-row" style="font-size:0.8rem;padding:4px 0"><span style="color:#64748b">Baslangic</span><span>'+formatMoney(c.baslangic_parasi)+' '+(c.para_birimi||'TL')+'</span></div>'+
             makeRdpLink(c)+
           '</div>';
         }
-        return '<div class="'+cardClass+'" onclick="openEditModal('+JSON.stringify(c).replace(/"/g,'&quot;')+')">' +
+        return '<div class="'+cardClass+'" onclick="openEditModal(cardDataMap['+i+'])">' +
           '<div class="card-header"><div><div class="card-name">'+(c.isim||'#'+c.hesap_no)+'</div><div class="card-id">#'+c.hesap_no+' · '+(c.para_birimi||'TL')+'</div></div>'+
           '<span class="card-badge'+(c.es_dost?' es-dost-badge':'')+'">'+statusText+'</span></div>'+
           '<div class="card-stats">'+
@@ -1135,7 +1140,7 @@ function getCustomersPage() {
             '<div class="card-stat"><div class="card-stat-value '+(bugunKar>=0?'positive':'negative')+'">'+(bugunKar>=0?'+':'')+formatMoney(bugunKar)+'</div><div class="card-stat-label">Bugun</div></div>'+
             '<div class="card-stat"><div class="card-stat-value '+(komisyon>=0?'positive':'negative')+'">'+(c.es_dost?'-':formatMoney(komisyon))+'</div><div class="card-stat-label">Komisyon</div></div>'+
           '</div>'+
-          '<div class="card-footer"><span>Baslangic: '+formatMoney(c.baslangic_parasi)+' '+(c.para_birimi||'TL')+'</span><span>%'+bugunPct.toFixed(2)+' bugun</span></div>'+
+          '<div class="card-footer"><span>Baslangic: '+formatMoney(c.baslangic_parasi||0)+' '+(c.para_birimi||'TL')+'</span><span>%'+bugunPct.toFixed(2)+' bugun</span></div>'+
           makeRdpLink(c)+
         '</div>';
       }).join('');
@@ -1206,14 +1211,30 @@ function getCustomersPage() {
     async function loadData(){
       try{
         const [mRes,kayitliRes,kurRes]=await Promise.all([fetch('/api/musteriler'),fetch('/api/kayitli'),fetch('/api/kur')]);
-        allCustomers=await mRes.json();
+        const mData=await mRes.json();
         kayitliCustomers=await kayitliRes.json();
         const kurData=await kurRes.json();
         DOLAR_KURU=kurData.kur||43;
         MARKET_OPEN=kurData.marketOpen;
+        // musteriler tablosundaki verileri kayitli musterilerle birlestir
+        // kayitli musteri id'lerini bir map'e al
+        const kayitliMap={};
+        kayitliCustomers.forEach(k=>{ kayitliMap[k.hesap_no]=k; });
+        // canli veri gelenleri kayitli bilgilerle zenginlestir
+        allCustomers=mData.map(m=>{
+          const k=kayitliMap[m.hesap_no]||{};
+          return {...m, ...k, varlik:m.varlik, bugun_kar:m.bugun_kar, bugun_yuzde:m.bugun_yuzde, son_guncelleme:m.son_guncelleme};
+        });
+        // canli veri gelmeyenler de listede gorunsun
+        kayitliCustomers.forEach(k=>{
+          if(!allCustomers.find(a=>a.hesap_no===k.hesap_no)) allCustomers.push(k);
+        });
         updateCounts();
         renderCards();
-      }catch(e){console.error(e);}
+      }catch(e){
+        console.error('loadData hatasi:',e);
+        document.getElementById('customerGrid').innerHTML='<div class="no-data" style="color:red">Veri yuklenemedi: '+e.message+'</div>';
+      }
     }
 
     loadData();
