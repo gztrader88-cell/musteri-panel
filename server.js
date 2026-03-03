@@ -788,11 +788,17 @@ function getMainPage() {
       document.getElementById('modalList').innerHTML=items.map(i=>'<li>'+i+'</li>').join('');
       document.getElementById('modal').classList.add('show');
     }
+    function openKayitliEdit(hesap_no){
+      var k=kayitliData.find(function(x){return x.hesap_no==hesap_no;});
+      var live=allData.find(function(x){return x.hesap_no==hesap_no;});
+      if(k) openEditModal(Object.assign({},live||{},k));
+    }
     function filterMainTable(){renderMainTable(allData);}
     function showKomisyonDetay(detay,toplam){
       var fmt=function(n){return new Intl.NumberFormat('tr-TR').format(Math.round(n));};
       var rows=detay.slice().sort(function(a,b){return b.komTL-a.komTL;}).map(function(d){
-        return '<tr><td style="padding:6px 12px">'+d.isim+'</td><td style="padding:6px 12px;text-align:right">'+fmt(d.kar)+' TL</td><td style="padding:6px 12px;text-align:center">%'+d.oran+'</td><td style="padding:6px 12px;text-align:right;color:#f59e0b;font-weight:bold">'+fmt(d.komTL)+' TL</td></tr>';
+        var isimHtml='<span style="cursor:pointer;color:#1a73e8;text-decoration:underline" onclick="closeModal();openKayitliEdit(\'' +d.hesap_no+ '\')">' + d.isim + '</span>';
+        return '<tr><td style="padding:6px 12px">'+isimHtml+'</td><td style="padding:6px 12px;text-align:right">'+fmt(d.kar)+' TL</td><td style="padding:6px 12px;text-align:center">%'+d.oran+'</td><td style="padding:6px 12px;text-align:right;color:#f59e0b;font-weight:bold">'+fmt(d.komTL)+' TL</td></tr>';
       }).join('');
       var html='<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid #334155"><th style="padding:6px 12px;text-align:left">Isim</th><th style="padding:6px 12px;text-align:right">Kar</th><th style="padding:6px 12px;text-align:center">Oran</th><th style="padding:6px 12px;text-align:right">Komisyon</th></tr></thead><tbody>'+rows+'</tbody><tfoot><tr style="border-top:2px solid #334155"><td colspan="3" style="padding:8px 12px;font-weight:bold">TOPLAM</td><td style="padding:8px 12px;text-align:right;color:#f59e0b;font-weight:bold;font-size:1.1em">'+fmt(toplam)+' TL</td></tr></tfoot></table>';
       document.getElementById('modalTitle').textContent='Hakedise Hazir Komisyon Detayi';
@@ -849,11 +855,11 @@ function getMainPage() {
       kayitliList.forEach(function(k){kayitliMap[k.hesap_no]=k;});
       var musteriler=liveData.map(function(m){
         var k=kayitliMap[m.hesap_no]||{};
-        return {isim:m.isim||('#'+m.hesap_no),varlik:parseFloat(m.varlik)||0,hakedis:parseFloat(k.baslangic_parasi)||0,komisyon_orani:parseFloat(k.komisyon_orani)||25,es_dost:k.es_dost||false,para_birimi:k.para_birimi||'TL'};
+        return {isim:m.isim||('#'+m.hesap_no),hesap_no:m.hesap_no,varlik:parseFloat(m.varlik)||0,hakedis:parseFloat(k.baslangic_parasi)||0,komisyon_orani:parseFloat(k.komisyon_orani)||25,es_dost:k.es_dost||false,para_birimi:k.para_birimi||'TL'};
       }).filter(function(m){return m.hakedis>0&&m.varlik>0;});
       var hazirlar=musteriler.filter(function(m){return m.varlik>=m.hakedis;});
       var hazirDetay=[];
-      var hazirKomisyon=hazirlar.reduce(function(s,m){if(m.es_dost)return s;var kar=m.para_birimi==='USD'?m.varlik-(m.hakedis*DOLAR_KURU):m.varlik-m.hakedis;if(kar<=0)return s;var komTL=kar*(m.komisyon_orani/100);hazirDetay.push({isim:m.isim,kar:kar,oran:m.komisyon_orani,komTL:komTL});return s+komTL;},0);
+      var hazirKomisyon=hazirlar.reduce(function(s,m){if(m.es_dost)return s;var kar=m.para_birimi==='USD'?m.varlik-(m.hakedis*DOLAR_KURU):m.varlik-m.hakedis;if(kar<=0)return s;var komTL=kar*(m.komisyon_orani/100);hazirDetay.push({isim:m.isim,hesap_no:m.hesap_no,kar:kar,oran:m.komisyon_orani,komTL:komTL});return s+komTL;},0);
       var hazirDegil=musteriler.filter(function(m){return m.varlik<m.hakedis;});
       var ihtiyaclar=hazirDegil.map(function(m){return {isim:m.isim,ihtiyac:m.hakedis-m.varlik,pct:((m.hakedis-m.varlik)/m.varlik)*100};}).sort(function(a,b){return b.pct-a.pct;});
       var sirali=[].concat(ihtiyaclar).sort(function(a,b){return a.pct-b.pct;});
