@@ -646,12 +646,11 @@ function getMainPage() {
     </div>
     <div id="hakodisBody">
       <div class="hakodis-grid">
-        <div class="hakodis-cell"><div class="hakodis-val green" id="hHazirKomisyon">-</div><div class="hakodis-lbl">Hakedişe Hazır Komisyon</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val" id="hHazirSayi">-</div><div class="hakodis-lbl">Hazır Kişi Sayısı</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val red" id="hEnUzakPct">-</div><div class="hakodis-lbl">En Uzak Kişi (% artış)</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val orange" id="hTumununIhtiyac" style="font-size:0.8rem">-</div><div class="hakodis-lbl">Herkes Hakedis Ustunde</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val orange" id="hYuzde80Ihtiyac" style="font-size:0.8rem">-</div><div class="hakodis-lbl">%80 Hakedis Ustunde</div></div>
-        <div class="hakodis-cell"><div class="hakodis-val red" id="hEnUzakIsim">-</div><div class="hakodis-lbl">En Uzak Kişi</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val green" id="hHazirKomisyon" style="cursor:pointer" title="Detay için tıkla">-</div><div class="hakodis-lbl">Hakedişe Hazır Komisyon</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val orange" id="hTumununIhtiyac" style="font-size:0.8rem">-</div><div class="hakodis-lbl">Herkes Hakedişe Ulaşır</div></div>
+        <div class="hakodis-cell"><div class="hakodis-val red" id="hEnUzakIsim" style="cursor:pointer" title="Detay için tıkla">-</div><div class="hakodis-lbl">En Uzak Kişi</div></div>
+        <div style="display:none"><div id="hHazirSayi"></div><div id="hEnUzakPct"></div></div>
+        <div class="hakodis-cell" id="hYuzde80Cell"><div class="hakodis-val orange" id="hYuzde80Ihtiyac" style="font-size:0.8rem">-</div><div class="hakodis-lbl">%80 Hakedişe Ulaşır</div></div>
       </div>
     </div>
   </div>
@@ -879,6 +878,7 @@ function getMainPage() {
       if(enUzak){
         document.getElementById('hEnUzakPct').textContent='%'+enUzak.pct.toFixed(1)+' artis';
         document.getElementById('hEnUzakIsim').textContent=enUzak.isim;
+        document.getElementById('hEnUzakIsim').onclick=function(){showModal('En Uzak Kişi',['Hakedişe ulaşmak için %'+enUzak.pct.toFixed(1)+' artış gerekiyor']);}
       } else {
         document.getElementById('hEnUzakPct').textContent='-';
         document.getElementById('hEnUzakIsim').textContent='Herkes hazir!';
