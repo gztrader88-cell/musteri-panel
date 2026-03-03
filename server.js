@@ -789,9 +789,7 @@ function getMainPage() {
       document.getElementById('modal').classList.add('show');
     }
     function openKayitliEdit(hesap_no){
-      var k=kayitliData.find(function(x){return x.hesap_no==hesap_no;});
-      var live=allData.find(function(x){return x.hesap_no==hesap_no;});
-      if(k) openEditModal(Object.assign({},live||{},k));
+      window.location.href='/musteriler?edit='+hesap_no;
     }
     function filterMainTable(){renderMainTable(allData);}
     function showKomisyonDetay(detay,toplam){
@@ -1374,7 +1372,14 @@ function getCustomersPage() {
       }
     }
 
-    loadData();
+    loadData().then(function(){
+      var params=new URLSearchParams(window.location.search);
+      var editNo=params.get('edit');
+      if(editNo){
+        var c=allCustomers.find(function(x){return x.hesap_no==editNo;});
+        if(c) openEditModal(c);
+      }
+    });
     setInterval(loadData,60000);
   </script>
 </body>
