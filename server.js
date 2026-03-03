@@ -842,7 +842,7 @@ function getMainPage() {
         return {isim:m.isim||('#'+m.hesap_no),varlik:parseFloat(m.varlik)||0,hakedis:parseFloat(k.baslangic_parasi)||0,komisyon_orani:parseFloat(k.komisyon_orani)||25,es_dost:k.es_dost||false,para_birimi:k.para_birimi||'TL'};
       }).filter(function(m){return m.hakedis>0&&m.varlik>0;});
       var hazirlar=musteriler.filter(function(m){return m.varlik>=m.hakedis;});
-      var hazirKomisyon=hazirlar.reduce(function(s,m){if(m.es_dost)return s;var kar=m.varlik-m.hakedis;if(kar<=0)return s;var komTL=m.para_birimi==='USD'?kar*(m.komisyon_orani/100)*DOLAR_KURU:kar*(m.komisyon_orani/100);return s+komTL;},0);
+      var hazirKomisyon=hazirlar.reduce(function(s,m){if(m.es_dost)return s;var kar=m.para_birimi==='USD'?m.varlik-(m.hakedis*DOLAR_KURU):m.varlik-m.hakedis;if(kar<=0)return s;var komTL=kar*(m.komisyon_orani/100);return s+komTL;},0);
       var hazirDegil=musteriler.filter(function(m){return m.varlik<m.hakedis;});
       var ihtiyaclar=hazirDegil.map(function(m){return {isim:m.isim,ihtiyac:m.hakedis-m.varlik,pct:((m.hakedis-m.varlik)/m.varlik)*100};}).sort(function(a,b){return b.pct-a.pct;});
       var sirali=[].concat(ihtiyaclar).sort(function(a,b){return a.pct-b.pct;});
