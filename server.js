@@ -934,8 +934,9 @@ function getMainPage() {
         }
         document.getElementById('alerts').innerHTML=alertsHtml;
         renderMainTable(allData);
-      }
-      function renderMainTable(data){
+      } catch(err){console.error(err);}
+    }
+    function renderMainTable(data){
         var q=(document.getElementById('mainSearch')||{value:''}).value.toLowerCase();
         var filtered=q?data.filter(function(c){return (c.isim||'').toLowerCase().includes(q)||(c.hesap_no||'').toString().includes(q);}):data;
         const tbody=document.getElementById('customerTable');
@@ -959,7 +960,6 @@ function getMainPage() {
             '<td class="'+(komisyon>=0?'positive':'negative')+'">'+(c.es_dost?'-':formatMoney(komisyon))+'</td>'+
           '</tr>';
         }).join('');
-      } catch(err){console.error(err);}
     }
     function showInactive(){showModal('Pasif (65+ dk)',allData.filter(c=>!isActive(c.son_guncelleme)).map(c=>(c.isim||'-')+' (#'+c.hesap_no+')'));}
     function showPosIssues(){const maj=getMajorityPosition(allData);showModal('Pozisyon Farki',allData.filter(c=>(c.acik_pozisyon||0)!==maj).map(c=>(c.isim||'-')+' - Acik: '+(c.acik_pozisyon||0)+' (gereken: '+maj+')'));}
