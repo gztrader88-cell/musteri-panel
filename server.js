@@ -67,6 +67,18 @@ async function initDB() {
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS grafik_uyarilari (
+        id SERIAL PRIMARY KEY,
+        hesap_no VARCHAR(50),
+        isim VARCHAR(100),
+        mesaj TEXT,
+        durum VARCHAR(20) DEFAULT 'aktif',
+        olusma_zamani TIMESTAMP DEFAULT NOW(),
+        cozulme_zamani TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS para_hareketleri (
         id SERIAL PRIMARY KEY,
         hesap_no VARCHAR(50),
@@ -642,6 +654,55 @@ app.get('/api/export', async (req, res) => {
 app.get('/', (req, res) => { res.send(getMainPage()); });
 app.get('/musteriler', (req, res) => { res.send(getCustomersPage()); });
 app.get('/robot', (req, res) => { res.send(getRobotPage()); });
+// Grafik uyarısı - MQL5'ten gelir
+app.post('/api/grafik-uyari', async (req, res) => {
+  try {
+    const { hesap_no, isim, mesaj, durum } = req.body;
+    if (!hesap_no || !durum) return res.status(400).json({ error: 'eksik veri' });
+
+    if (durum === 'hata') {
+      // Aynı hesap için aktif uyarı var mı?
+      const existing = await pool.query(
+        "SELECT id FROM grafik_uyarilari WHERE hesap_no = $1 AND durum = 'aktif'",
+        [hesap_no]
+      );
+      if (existing.rows.length === 0) {
+        await pool.query(
+          'INSERT INTO grafik_uyarilari (hesap_no, isim, mesaj) VALUES ($1, $2, $3)',
+          [hesap_no, isim, mesaj || '']
+        );
+      } else {
+        // Mesajı güncelle
+        await pool.query(
+          "UPDATE grafik_uyarilari SET mesaj = $1, isim = $2 WHERE hesap_no = $3 AND durum = 'aktif'",
+          [mesaj || '', isim, hesap_no]
+        );
+      }
+    } else if (durum === 'tamam') {
+      await pool.query(
+        "UPDATE grafik_uyarilari SET durum = 'cozuldu', cozulme_zamani = NOW() WHERE hesap_no = $1 AND durum = 'aktif'",
+        [hesap_no]
+      );
+      console.log('Grafik uyarisi cozuldu:', hesap_no, isim);
+    }
+    res.json({ ok: true });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Aktif grafik uyarılarını listele
+app.get('/api/grafik-uyarilari', async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM grafik_uyarilari WHERE durum = 'aktif' ORDER BY olusma_zamani DESC"
+    );
+    res.json(result.rows);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Kopukluk bildirimi - MQL5'ten gelir
 app.post('/api/kopukluk', async (req, res) => {
   try {
@@ -896,9 +957,9 @@ function getMainPage() {
   </div>
 
   <!-- Ayarlar Modal -->
-  <!-- Kopukluk Uyari Baneri -->
-<div id="kopuklukBaner" style="display:none;background:#fef2f2;border-bottom:2px solid #ef4444;padding:8px 20px">
-  <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap" id="kopuklukIcerik"></div>
+  <!-- Uyari Baneri (Kopukluk + Grafik) -->
+<div id="uyariBaner" style="display:none;background:#fef2f2;border-bottom:2px solid #ef4444;padding:8px 20px">
+  <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap" id="uyariIcerik"></div>
 </div>
 
 <!-- Para Hareketleri Modal -->
@@ -1205,25 +1266,47 @@ function getMainPage() {
     loadParaHareketleri();
     loadKopukluklar();
   
-// ===== KOPUKLUK UYARILARI =====
+// ===== UYARI BANERI (KOPUKLUK + GRAFİK) =====
 async function loadKopukluklar(){
   try{
-    const r = await fetch('/api/kopukluklar');
-    const data = await r.json();
-    const baner = document.getElementById('kopuklukBaner');
-    const icerik = document.getElementById('kopuklukIcerik');
-    if(data.length === 0){
+    const [kopRes, grafRes] = await Promise.all([
+      fetch('/api/kopukluklar'),
+      fetch('/api/grafik-uyarilari')
+    ]);
+    const kopData = await kopRes.json();
+    const grafData = await grafRes.json();
+
+    const baner = document.getElementById('uyariBaner');
+    const icerik = document.getElementById('uyariIcerik');
+
+    if(kopData.length === 0 && grafData.length === 0){
       baner.style.display = 'none';
       return;
     }
+
     baner.style.display = 'block';
-    let html = '<span style="color:#dc2626;font-weight:700;font-size:0.85rem">⚠️ BAĞLANTI KOPUK:</span>';
-    data.forEach(k => {
-      const sure = Math.round((Date.now() - new Date(k.kopus_zamani).getTime()) / 60000);
-      html += '<span style="background:#fee2e2;border:1px solid #fca5a5;border-radius:16px;padding:3px 10px;font-size:0.78rem;color:#dc2626;font-weight:600">'
-             + '🔴 ' + (k.isim || k.hesap_no) + ' — ' + sure + ' dk'
-             + '</span>';
-    });
+    let html = '';
+
+    if(kopData.length > 0){
+      html += '<span style="color:#dc2626;font-weight:700;font-size:0.82rem;margin-right:4px">⚠️ KOPUK:</span>';
+      kopData.forEach(k => {
+        const sure = Math.round((Date.now() - new Date(k.kopus_zamani).getTime()) / 60000);
+        html += '<span style="background:#fee2e2;border:1px solid #fca5a5;border-radius:16px;padding:3px 10px;font-size:0.78rem;color:#dc2626;font-weight:600;cursor:pointer" title="Hesap: '+k.hesap_no+'">'
+               + '🔴 ' + (k.isim || k.hesap_no) + ' ' + sure + ' dk</span>';
+      });
+    }
+
+    if(grafData.length > 0){
+      if(html) html += '<span style="color:#aaa;margin:0 6px">|</span>';
+      html += '<span style="color:#d97706;font-weight:700;font-size:0.82rem;margin-right:4px">📊 GRAFİK HATASI:</span>';
+      grafData.forEach(g => {
+        const sure = Math.round((Date.now() - new Date(g.olusma_zamani).getTime()) / 60000);
+        const title = (g.mesaj||'').replace(/"/g,"'");
+        html += '<span style="background:#fef3c7;border:1px solid #fcd34d;border-radius:16px;padding:3px 10px;font-size:0.78rem;color:#92400e;font-weight:600;cursor:pointer" title="'+title+'">'
+               + '🟡 ' + (g.isim || g.hesap_no) + ' ' + sure + ' dk</span>';
+      });
+    }
+
     icerik.innerHTML = html;
   }catch(e){}
 }
