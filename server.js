@@ -2476,7 +2476,7 @@ async function init(){
              :src==='canli'?'<span class="badge-canli">Bugun canli</span>'
              :'<span class="badge-gecmis">Gecmis Veri</span>';
     // Sadece DB kayitlari duzenlenebilir
-    var editBtn=src==='db'?'<button class="edit-btn" onclick="openEdit(''+extData[j][0]+'','+pct2.toFixed(4)+')">&#x270F; Duzenle</button>':'';
+    var editBtn=src==='db'?'<button class="edit-btn" data-tarih="'+extData[j][0]+'" data-pct="'+pct2.toFixed(4)+'" onclick="openEdit(this.dataset.tarih,parseFloat(this.dataset.pct))">&#x270F; Duzenle</button>':''
     html+='<tr><td style="color:#aaa">'+j+'</td><td>'+extData[j][0]+'</td><td>'+fmt(extData[j][1])+' TL</td><td>'+pctStr+'</td><td>'+badge+'</td><td>'+editBtn+'</td></tr>';
   }
   document.getElementById('tableBody').innerHTML=html;
