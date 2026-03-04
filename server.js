@@ -1906,6 +1906,7 @@ function getCustomersPage() {
             '<div class="card-header"><div><div class="card-name">#'+c.hesap_no+'</div><div class="card-id">Canli veri bekleniyor</div></div><span class="card-badge">Kayitli</span></div>'+
             '<div class="info-row" style="font-size:0.8rem;padding:4px 0"><span style="color:#64748b">Baslangic</span><span>'+formatMoney(c.baslangic_parasi)+' '+(c.para_birimi||'TL')+'</span></div>'+
             makeRdpLink(c)+
+          '<div style="text-align:right;padding:4px 0 2px"><button data-hesap="'+c.hesap_no+'" data-isim="'+(c.isim||('#'+c.hesap_no)).replace(/"/g,'')+'" onclick="event.stopPropagation();musteriSil(this.dataset.hesap,this.dataset.isim)" style="background:none;border:1px solid #fca5a5;color:#dc2626;border-radius:6px;padding:3px 10px;font-size:0.72rem;cursor:pointer">🗑 Sil</button></div>'+
           '</div>';
         }
         return '<div class="'+cardClass+'" onclick="openEditModal(cardDataMap['+i+'])">' +
