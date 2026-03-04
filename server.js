@@ -1141,7 +1141,98 @@ function getMainPage() {
     setInterval(loadData,30000);
     setInterval(loadParaHareketleri, 30000);
     loadParaHareketleri();
-  </script>
+  
+// ===== PARA HAREKETLERİ =====
+async function loadParaHareketleri(){
+  try{
+    const r = await fetch('/api/para-hareketleri');
+    const data = await r.json();
+    
+    // Badge güncelle
+    const badge = document.getElementById('paraHareketBadge');
+    if(data.length > 0){
+      badge.textContent = data.length;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+    return data;
+  }catch(e){ return []; }
+}
+
+async function showParaHareketleri(){
+  document.getElementById('paraHareketModal').style.display = 'flex';
+  const liste = document.getElementById('paraHareketListesi');
+  liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Yukleniyor...</div>';
+  
+  const data = await loadParaHareketleri();
+  
+  if(data.length === 0){
+    liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Bekleyen hareket yok</div>';
+    return;
+  }
+  
+  let html = '';
+  data.forEach(h => {
+    const miktar = parseFloat(h.miktar);
+    const isEkleme = miktar > 0;
+    const tur = isEkleme ? 'Para Yatirma' : 'Para Cekme';
+    const renk = isEkleme ? '#16a34a' : '#dc2626';
+    const icon = isEkleme ? '📈' : '📉';
+    const mevcutBas = parseFloat(h.baslangic_parasi)||0;
+    const yeniBas = mevcutBas + miktar;
+    const tarih = new Date(h.created_at).toLocaleString('tr-TR');
+    
+    html += '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:10px">'
+          +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
+          +'<div><div style="font-weight:600;font-size:0.9rem">'+icon+' '+(h.isim||h.hesap_no)+'</div>'
+          +'<div style="font-size:0.75rem;color:#888;margin-top:2px">'+h.hesap_no+' &middot; '+tarih+'</div></div>'
+          +'<div style="text-align:right"><div style="font-weight:700;font-size:1rem;color:'+renk+'">'+(isEkleme?'+':'')
+          +new Intl.NumberFormat('tr-TR').format(Math.round(miktar))+' TL</div>'
+          +'<div style="font-size:0.7rem;color:#888">'+tur+'</div></div></div>'
+          +'<div style="background:#f8fafc;border-radius:6px;padding:8px;font-size:0.75rem;margin-bottom:10px">'
+          +'<div style="display:flex;justify-content:space-between"><span style="color:#666">Mevcut baslangic:</span>'
+          +'<span style="font-weight:600">'+new Intl.NumberFormat('tr-TR').format(Math.round(mevcutBas))+' TL</span></div>'
+          +'<div style="display:flex;justify-content:space-between;margin-top:4px"><span style="color:#666">Onaylanirsa yeni:</span>'
+          +'<span style="font-weight:600;color:'+renk+'">'+new Intl.NumberFormat('tr-TR').format(Math.round(yeniBas))+' TL</span></div></div>'
+          +'<div style="display:flex;gap:8px">'
+          +'<button onclick="onaylaHareket('+h.id+', true, this)" style="flex:1;padding:7px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600">✅ Onayla ve Baslangic Parasini Guncelle</button>'
+          +'<button onclick="onaylaHareket('+h.id+', false, this)" style="flex:0 0 auto;padding:7px 14px;background:#f3f4f6;color:#666;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem">✕ Reddet</button>'
+          +'</div></div>';
+  });
+  
+  liste.innerHTML = html;
+}
+
+async function onaylaHareket(id, onay, btn){
+  btn.disabled = true;
+  btn.textContent = 'Isleniyor...';
+  try{
+    const r = await fetch('/api/para-hareketi/'+id+'/onayla', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({onay})
+    });
+    const d = await r.json();
+    if(d.ok){
+      // Kartı kaldır
+      btn.closest('div[style*="border:1px"]').remove();
+      // Eğer liste boşaldıysa
+      const liste = document.getElementById('paraHareketListesi');
+      if(!liste.querySelector('div[style*="border:1px"]')){
+        liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Bekleyen hareket yok</div>';
+      }
+      await loadParaHareketleri();
+      if(onay) loadData(); // ana tabloyu yenile
+    }
+  }catch(e){ btn.disabled=false; btn.textContent='Hata'; }
+}
+
+function closeParaHareketModal(){
+  document.getElementById('paraHareketModal').style.display = 'none';
+}
+
+</script>
 </body>
 </html>`;
 }
@@ -1513,97 +1604,7 @@ function getCustomersPage() {
       }catch(e){alert('Baglanti hatasi!');}
     }
 
-    // ===== PARA HAREKETLERİ =====
-async function loadParaHareketleri(){
-  try{
-    const r = await fetch('/api/para-hareketleri');
-    const data = await r.json();
-    
-    // Badge güncelle
-    const badge = document.getElementById('paraHareketBadge');
-    if(data.length > 0){
-      badge.textContent = data.length;
-      badge.style.display = 'flex';
-    } else {
-      badge.style.display = 'none';
-    }
-    return data;
-  }catch(e){ return []; }
-}
-
-async function showParaHareketleri(){
-  document.getElementById('paraHareketModal').style.display = 'flex';
-  const liste = document.getElementById('paraHareketListesi');
-  liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Yukleniyor...</div>';
-  
-  const data = await loadParaHareketleri();
-  
-  if(data.length === 0){
-    liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Bekleyen hareket yok</div>';
-    return;
-  }
-  
-  let html = '';
-  data.forEach(h => {
-    const miktar = parseFloat(h.miktar);
-    const isEkleme = miktar > 0;
-    const tur = isEkleme ? 'Para Yatirma' : 'Para Cekme';
-    const renk = isEkleme ? '#16a34a' : '#dc2626';
-    const icon = isEkleme ? '📈' : '📉';
-    const mevcutBas = parseFloat(h.baslangic_parasi)||0;
-    const yeniBas = mevcutBas + miktar;
-    const tarih = new Date(h.created_at).toLocaleString('tr-TR');
-    
-    html += '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:10px">'
-          +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
-          +'<div><div style="font-weight:600;font-size:0.9rem">'+icon+' '+(h.isim||h.hesap_no)+'</div>'
-          +'<div style="font-size:0.75rem;color:#888;margin-top:2px">'+h.hesap_no+' &middot; '+tarih+'</div></div>'
-          +'<div style="text-align:right"><div style="font-weight:700;font-size:1rem;color:'+renk+'">'+(isEkleme?'+':'')
-          +new Intl.NumberFormat('tr-TR').format(Math.round(miktar))+' TL</div>'
-          +'<div style="font-size:0.7rem;color:#888">'+tur+'</div></div></div>'
-          +'<div style="background:#f8fafc;border-radius:6px;padding:8px;font-size:0.75rem;margin-bottom:10px">'
-          +'<div style="display:flex;justify-content:space-between"><span style="color:#666">Mevcut baslangic:</span>'
-          +'<span style="font-weight:600">'+new Intl.NumberFormat('tr-TR').format(Math.round(mevcutBas))+' TL</span></div>'
-          +'<div style="display:flex;justify-content:space-between;margin-top:4px"><span style="color:#666">Onaylanirsa yeni:</span>'
-          +'<span style="font-weight:600;color:'+renk+'">'+new Intl.NumberFormat('tr-TR').format(Math.round(yeniBas))+' TL</span></div></div>'
-          +'<div style="display:flex;gap:8px">'
-          +'<button onclick="onaylaHareket('+h.id+', true, this)" style="flex:1;padding:7px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600">✅ Onayla ve Baslangic Parasini Guncelle</button>'
-          +'<button onclick="onaylaHareket('+h.id+', false, this)" style="flex:0 0 auto;padding:7px 14px;background:#f3f4f6;color:#666;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem">✕ Reddet</button>'
-          +'</div></div>';
-  });
-  
-  liste.innerHTML = html;
-}
-
-async function onaylaHareket(id, onay, btn){
-  btn.disabled = true;
-  btn.textContent = 'Isleniyor...';
-  try{
-    const r = await fetch('/api/para-hareketi/'+id+'/onayla', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({onay})
-    });
-    const d = await r.json();
-    if(d.ok){
-      // Kartı kaldır
-      btn.closest('div[style*="border:1px"]').remove();
-      // Eğer liste boşaldıysa
-      const liste = document.getElementById('paraHareketListesi');
-      if(!liste.querySelector('div[style*="border:1px"]')){
-        liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Bekleyen hareket yok</div>';
-      }
-      await loadParaHareketleri();
-      if(onay) loadData(); // ana tabloyu yenile
-    }
-  }catch(e){ btn.disabled=false; btn.textContent='Hata'; }
-}
-
-function closeParaHareketModal(){
-  document.getElementById('paraHareketModal').style.display = 'none';
-}
-
-async function loadData(){
+    async function loadData(){
       try{
         const [mRes,kayitliRes,kurRes]=await Promise.all([fetch('/api/musteriler'),fetch('/api/kayitli'),fetch('/api/kur')]);
         const mData=await mRes.json();
