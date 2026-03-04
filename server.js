@@ -56,6 +56,18 @@ async function initDB() {
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS sozlesme_link TEXT`);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS para_hareketleri (
+        id SERIAL PRIMARY KEY,
+        hesap_no VARCHAR(50),
+        isim VARCHAR(100),
+        miktar DECIMAL(20,2),
+        islem_turu VARCHAR(20),
+        durum VARCHAR(20) DEFAULT 'bekliyor',
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS robot_gunluk (
         id SERIAL PRIMARY KEY,
         tarih DATE UNIQUE,
@@ -619,6 +631,68 @@ app.get('/api/export', async (req, res) => {
 app.get('/', (req, res) => { res.send(getMainPage()); });
 app.get('/musteriler', (req, res) => { res.send(getCustomersPage()); });
 app.get('/robot', (req, res) => { res.send(getRobotPage()); });
+// Para hareketi bildirimi (MQL5'ten gelir)
+app.post('/api/para-hareketi', async (req, res) => {
+  try {
+    const { hesap_no, isim, miktar, islem_turu } = req.body;
+    if (!hesap_no || !miktar) return res.status(400).json({ error: 'eksik veri' });
+    const result = await pool.query(
+      'INSERT INTO para_hareketleri (hesap_no, isim, miktar, islem_turu) VALUES ($1, $2, $3, $4) RETURNING id',
+      [hesap_no, isim, parseFloat(miktar), islem_turu]
+    );
+    console.log('Para hareketi alindi:', hesap_no, islem_turu, miktar);
+    res.json({ ok: true, id: result.rows[0].id });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bekleyen para hareketleri listesi
+app.get('/api/para-hareketleri', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ph.*, mk.baslangic_parasi 
+       FROM para_hareketleri ph
+       LEFT JOIN musteri_kayit mk ON mk.hesap_no = ph.hesap_no
+       WHERE ph.durum = 'bekliyor'
+       ORDER BY ph.created_at DESC`
+    );
+    res.json(result.rows);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Para hareketi onayla/reddet
+app.post('/api/para-hareketi/:id/onayla', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { onay } = req.body; // true = onayla, false = reddet
+
+    const ph = await pool.query('SELECT * FROM para_hareketleri WHERE id = $1', [id]);
+    if (ph.rows.length === 0) return res.status(404).json({ error: 'bulunamadi' });
+    const h = ph.rows[0];
+
+    if (onay) {
+      // Başlangıç parasını güncelle
+      const kayit = await pool.query('SELECT baslangic_parasi FROM musteri_kayit WHERE hesap_no = $1', [h.hesap_no]);
+      if (kayit.rows.length > 0) {
+        const mevcut = parseFloat(kayit.rows[0].baslangic_parasi) || 0;
+        const yeni = mevcut + parseFloat(h.miktar); // miktar + ise ekleme, - ise çıkarma
+        await pool.query('UPDATE musteri_kayit SET baslangic_parasi = $1 WHERE hesap_no = $2', [yeni, h.hesap_no]);
+        console.log('Baslangic parasi guncellendi:', h.hesap_no, mevcut, '->', yeni);
+      }
+    }
+
+    await pool.query("UPDATE para_hareketleri SET durum = $1 WHERE id = $2",
+      [onay ? 'onaylandi' : 'reddedildi', id]);
+
+    res.json({ ok: true });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/robot-gunluk', async (req, res) => {
   try {
     const result = await pool.query('SELECT tarih, bakiye, gunluk_pct, musteri_sayisi FROM robot_gunluk ORDER BY tarih ASC');
@@ -708,7 +782,7 @@ function getMainPage() {
     <h1>Musteri Takip Paneli</h1>
     <div class="market-status" id="marketStatus">Piyasa durumu yukleniyor...</div>
     <div class="header-btns">
-      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a>
+      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:none;align-items:center;justify-content:center;font-weight:bold">0</span></button>
       <a href="/api/export" class="header-btn">📥 Excel</a>
       <button class="header-btn" onclick="showSettings()">⚙️</button>
     </div>
@@ -766,7 +840,18 @@ function getMainPage() {
   </div>
 
   <!-- Ayarlar Modal -->
-  <div class="modal" id="settingsModal">
+  <!-- Para Hareketleri Modal -->
+<div class="modal" id="paraHareketModal" onclick="if(event.target===this)closeParaHareketModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:24px;max-width:520px;width:90%;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:1rem;font-weight:600">💰 Para Hareketleri</h3>
+      <button onclick="closeParaHareketModal()" style="border:none;background:none;font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    <div id="paraHareketListesi">Yukleniyor...</div>
+  </div>
+</div>
+
+<div class="modal" id="settingsModal">
     <div class="modal-content">
       <div class="modal-header">
         <h3>Ayarlar</h3>
@@ -1054,6 +1139,8 @@ function getMainPage() {
     function showGelmeyenler(){const gelenIDs=allData.map(m=>m.hesap_no);showModal('Veri Gelmeyen Musteriler',kayitliData.filter(k=>k.aktif!==false&&!gelenIDs.includes(k.hesap_no)).map(k=>'#'+k.hesap_no));}
     loadData();
     setInterval(loadData,30000);
+    setInterval(loadParaHareketleri, 30000);
+    loadParaHareketleri();
   </script>
 </body>
 </html>`;
@@ -1426,7 +1513,97 @@ function getCustomersPage() {
       }catch(e){alert('Baglanti hatasi!');}
     }
 
-    async function loadData(){
+    // ===== PARA HAREKETLERİ =====
+async function loadParaHareketleri(){
+  try{
+    const r = await fetch('/api/para-hareketleri');
+    const data = await r.json();
+    
+    // Badge güncelle
+    const badge = document.getElementById('paraHareketBadge');
+    if(data.length > 0){
+      badge.textContent = data.length;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+    return data;
+  }catch(e){ return []; }
+}
+
+async function showParaHareketleri(){
+  document.getElementById('paraHareketModal').style.display = 'flex';
+  const liste = document.getElementById('paraHareketListesi');
+  liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Yukleniyor...</div>';
+  
+  const data = await loadParaHareketleri();
+  
+  if(data.length === 0){
+    liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Bekleyen hareket yok</div>';
+    return;
+  }
+  
+  let html = '';
+  data.forEach(h => {
+    const miktar = parseFloat(h.miktar);
+    const isEkleme = miktar > 0;
+    const tur = isEkleme ? 'Para Yatirma' : 'Para Cekme';
+    const renk = isEkleme ? '#16a34a' : '#dc2626';
+    const icon = isEkleme ? '📈' : '📉';
+    const mevcutBas = parseFloat(h.baslangic_parasi)||0;
+    const yeniBas = mevcutBas + miktar;
+    const tarih = new Date(h.created_at).toLocaleString('tr-TR');
+    
+    html += '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:10px">'
+          +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
+          +'<div><div style="font-weight:600;font-size:0.9rem">'+icon+' '+(h.isim||h.hesap_no)+'</div>'
+          +'<div style="font-size:0.75rem;color:#888;margin-top:2px">'+h.hesap_no+' &middot; '+tarih+'</div></div>'
+          +'<div style="text-align:right"><div style="font-weight:700;font-size:1rem;color:'+renk+'">'+(isEkleme?'+':'')
+          +new Intl.NumberFormat('tr-TR').format(Math.round(miktar))+' TL</div>'
+          +'<div style="font-size:0.7rem;color:#888">'+tur+'</div></div></div>'
+          +'<div style="background:#f8fafc;border-radius:6px;padding:8px;font-size:0.75rem;margin-bottom:10px">'
+          +'<div style="display:flex;justify-content:space-between"><span style="color:#666">Mevcut baslangic:</span>'
+          +'<span style="font-weight:600">'+new Intl.NumberFormat('tr-TR').format(Math.round(mevcutBas))+' TL</span></div>'
+          +'<div style="display:flex;justify-content:space-between;margin-top:4px"><span style="color:#666">Onaylanirsa yeni:</span>'
+          +'<span style="font-weight:600;color:'+renk+'">'+new Intl.NumberFormat('tr-TR').format(Math.round(yeniBas))+' TL</span></div></div>'
+          +'<div style="display:flex;gap:8px">'
+          +'<button onclick="onaylaHareket('+h.id+', true, this)" style="flex:1;padding:7px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600">✅ Onayla ve Baslangic Parasini Guncelle</button>'
+          +'<button onclick="onaylaHareket('+h.id+', false, this)" style="flex:0 0 auto;padding:7px 14px;background:#f3f4f6;color:#666;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem">✕ Reddet</button>'
+          +'</div></div>';
+  });
+  
+  liste.innerHTML = html;
+}
+
+async function onaylaHareket(id, onay, btn){
+  btn.disabled = true;
+  btn.textContent = 'Isleniyor...';
+  try{
+    const r = await fetch('/api/para-hareketi/'+id+'/onayla', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({onay})
+    });
+    const d = await r.json();
+    if(d.ok){
+      // Kartı kaldır
+      btn.closest('div[style*="border:1px"]').remove();
+      // Eğer liste boşaldıysa
+      const liste = document.getElementById('paraHareketListesi');
+      if(!liste.querySelector('div[style*="border:1px"]')){
+        liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Bekleyen hareket yok</div>';
+      }
+      await loadParaHareketleri();
+      if(onay) loadData(); // ana tabloyu yenile
+    }
+  }catch(e){ btn.disabled=false; btn.textContent='Hata'; }
+}
+
+function closeParaHareketModal(){
+  document.getElementById('paraHareketModal').style.display = 'none';
+}
+
+async function loadData(){
       try{
         const [mRes,kayitliRes,kurRes]=await Promise.all([fetch('/api/musteriler'),fetch('/api/kayitli'),fetch('/api/kur')]);
         const mData=await mRes.json();
