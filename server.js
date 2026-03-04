@@ -985,11 +985,6 @@ function getMainPage() {
     </div>
   </div>
 
-  <!-- Uyari Baneri (Kopukluk + Grafik) -->
-<div id="uyariBaner" style="display:none;background:#fef2f2;border-bottom:2px solid #ef4444;padding:8px 20px">
-  <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap" id="uyariIcerik"></div>
-</div>
-
   <div class="stats">
     <div class="stat-card"><div class="stat-value" id="totalCustomers">-</div><div class="stat-label">Musteri</div></div>
     <div class="stat-card"><div class="stat-value" id="activeCustomers">-</div><div class="stat-label">Aktif</div></div>
@@ -1284,6 +1279,14 @@ function getMainPage() {
           const hd=await hr.json();
           hd.forEach(h=>hareketliHesaplar.add(String(h.hesap_no)));
         }catch(e){}
+        // Kopukluk ve grafik uyarilarini cek (global degiskenleri de guncelle)
+        try{
+          const [kr,gr]=await Promise.all([fetch('/api/kopukluklar'),fetch('/api/grafik-uyarilari')]);
+          _kopuklukData=await kr.json();
+          _grafikData=await gr.json();
+        }catch(e){}
+        var kopuklukData=_kopuklukData;
+        var grafikData=_grafikData;
         const filteredData=allData.filter(c=>!hareketliHesaplar.has(String(c.hesap_no)));
         const todayProfit=filteredData.reduce((s,c)=>s+(parseFloat(c.bugun_kar)||0),0);
         const avgPct=filteredData.length>0?filteredData.reduce((s,c)=>s+(parseFloat(c.bugun_yuzde)||0),0)/filteredData.length:0;
@@ -1311,11 +1314,15 @@ function getMainPage() {
           if(inactiveList.length>0)alertsHtml+='<button class="alert-btn danger" onclick="showInactive()">⚠ Pasif: '+inactiveList.length+'</button>';
           if(posIssues.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showPosIssues()">📊 Poz: '+posIssues.length+'</button>';
           if(outliers.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: '+outliers.length+'</button>';
+          if(kopData.length>0)alertsHtml+=\'<button class="alert-btn danger" onclick="showKopuklukModal()">🔴 Kopuk: \'+kopData.length+\'</button>\';
+          if(grafData.length>0)alertsHtml+=\'<button class="alert-btn warning" onclick="showGrafikModal()">📊 Grafik: \'+grafData.length+\'</button>\';
           if(alertsHtml==='')alertsHtml='<button class="alert-btn success">✓ Normal</button>';
         }else{
           alertsHtml='<button class="alert-btn info">🌙 Piyasa Kapali - Kontrol Pasif</button>';
           if(posIssues.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showPosIssues()">📊 Poz: '+posIssues.length+'</button>';
           if(outliers.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: '+outliers.length+'</button>';
+          if(kopData.length>0)alertsHtml+=\'<button class="alert-btn danger" onclick="showKopuklukModal()">🔴 Kopuk: \'+kopData.length+\'</button>\';
+          if(grafData.length>0)alertsHtml+=\'<button class="alert-btn warning" onclick="showGrafikModal()">📊 Grafik: \'+grafData.length+\'</button>\';
         }
         document.getElementById('alerts').innerHTML=alertsHtml;
         renderMainTable(allData);
@@ -1353,52 +1360,71 @@ function getMainPage() {
     loadData();
     setInterval(loadData,30000);
     setInterval(loadParaHareketleri, 30000);
-    setInterval(loadKopukluklar, 30000);
     loadParaHareketleri();
-    loadKopukluklar();
   
-// ===== UYARI BANERI (KOPUKLUK + GRAFİK) =====
+// ===== KOPUKLUK & GRAFİK DETAY MODALLERİ =====
+var _kopuklukData=[];
+var _grafikData=[];
+
+function showKopuklukDetay(){
+  var html='<div style="padding:4px 0">';
+  _kopuklukData.forEach(function(k){
+    var sure=Math.round((Date.now()-new Date(k.kopus_zamani).getTime())/60000);
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #fee2e2">'
+         +'<span style="font-size:1.2rem">🔴</span>'
+         +'<div><div style="font-weight:600;font-size:0.88rem">'+(k.isim||k.hesap_no)+'</div>'
+         +'<div style="font-size:0.75rem;color:#888">Hesap: '+k.hesap_no+' &nbsp;|&nbsp; '+sure+' dakikadır kopuk</div>'
+         +'<div style="font-size:0.72rem;color:#dc2626;margin-top:2px">Kopuş: '+new Date(k.kopus_zamani).toLocaleString("tr-TR")+'</div>'
+         +'</div></div>';
+  });
+  html+='</div>';
+  showAlertModal('🔴 Bağlantı Kopuk Hesaplar', html);
+}
+
+function showGrafikDetay(){
+  var html='<div style="padding:4px 0">';
+  _grafikData.forEach(function(g){
+    var sure=Math.round((Date.now()-new Date(g.olusma_zamani).getTime())/60000);
+    html+='<div style="display:flex;align-items:start;gap:10px;padding:10px 0;border-bottom:1px solid #fef3c7">'
+         +'<span style="font-size:1.2rem">🟡</span>'
+         +'<div><div style="font-weight:600;font-size:0.88rem">'+(g.isim||g.hesap_no)+'</div>'
+         +'<div style="font-size:0.75rem;color:#888">Hesap: '+g.hesap_no+' &nbsp;|&nbsp; '+sure+' dakikadır hatalı</div>'
+         +'<div style="font-size:0.72rem;color:#92400e;margin-top:4px;background:#fef3c7;padding:4px 8px;border-radius:4px">'+(g.mesaj||'-')+'</div>'
+         +'</div></div>';
+  });
+  html+='</div>';
+  showAlertModal('📊 Grafik Hatası Olan Hesaplar', html);
+}
+
+function showAlertModal(title, content){
+  var m=document.getElementById('alertDetailModal');
+  if(!m){
+    m=document.createElement('div');
+    m.id='alertDetailModal';
+    m.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center';
+    m.onclick=function(e){if(e.target===m)m.style.display="none";};
+    m.innerHTML='<div style="background:#fff;border-radius:12px;padding:0;max-width:480px;width:92%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column">'
+      +'<div style="padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">'
+      +'<h3 id="alertDetailTitle" style="font-size:0.95rem;font-weight:600;margin:0"></h3>'
+      +'<button onclick="document.getElementById('alertDetailModal').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:#aaa">×</button>'
+      +'</div>'
+      +'<div id="alertDetailContent" style="padding:16px 20px;overflow-y:auto"></div>'
+      +'</div>';
+    document.body.appendChild(m);
+  }
+  document.getElementById('alertDetailTitle').textContent=title;
+  document.getElementById('alertDetailContent').innerHTML=content;
+  m.style.display='flex';
+}
+
 async function loadKopukluklar(){
   try{
     const [kopRes, grafRes] = await Promise.all([
       fetch('/api/kopukluklar'),
       fetch('/api/grafik-uyarilari')
     ]);
-    const kopData = await kopRes.json();
-    const grafData = await grafRes.json();
-
-    const baner = document.getElementById('uyariBaner');
-    const icerik = document.getElementById('uyariIcerik');
-
-    if(kopData.length === 0 && grafData.length === 0){
-      baner.style.display = 'none';
-      return;
-    }
-
-    baner.style.display = 'block';
-    let html = '';
-
-    if(kopData.length > 0){
-      html += '<span style="color:#dc2626;font-weight:700;font-size:0.82rem;margin-right:4px">⚠️ KOPUK:</span>';
-      kopData.forEach(k => {
-        const sure = Math.round((Date.now() - new Date(k.kopus_zamani).getTime()) / 60000);
-        html += '<span style="background:#fee2e2;border:1px solid #fca5a5;border-radius:16px;padding:3px 10px;font-size:0.78rem;color:#dc2626;font-weight:600;cursor:pointer" title="Hesap: '+k.hesap_no+'">'
-               + '🔴 ' + (k.isim || k.hesap_no) + ' ' + sure + ' dk</span>';
-      });
-    }
-
-    if(grafData.length > 0){
-      if(html) html += '<span style="color:#aaa;margin:0 6px">|</span>';
-      html += '<span style="color:#d97706;font-weight:700;font-size:0.82rem;margin-right:4px">📊 GRAFİK HATASI:</span>';
-      grafData.forEach(g => {
-        const sure = Math.round((Date.now() - new Date(g.olusma_zamani).getTime()) / 60000);
-        const title = (g.mesaj||'').replace(/"/g,"'");
-        html += '<span style="background:#fef3c7;border:1px solid #fcd34d;border-radius:16px;padding:3px 10px;font-size:0.78rem;color:#92400e;font-weight:600;cursor:pointer" title="'+title+'">'
-               + '🟡 ' + (g.isim || g.hesap_no) + ' ' + sure + ' dk</span>';
-      });
-    }
-
-    icerik.innerHTML = html;
+    _kopuklukData = await kopRes.json();
+    _grafikData = await grafRes.json();
   }catch(e){}
 }
 
@@ -1866,8 +1892,12 @@ function getCustomersPage() {
 
     async function loadData(){
       try{
-        const [mRes,kayitliRes,kurRes]=await Promise.all([fetch('/api/musteriler'),fetch('/api/kayitli'),fetch('/api/kur')]);
+        const [mRes,kayitliRes,kurRes,kopRes,grafRes]=await Promise.all([fetch('/api/musteriler'),fetch('/api/kayitli'),fetch('/api/kur'),fetch('/api/kopukluklar'),fetch('/api/grafik-uyarilari')]);
         const mData=await mRes.json();
+        const kopData=await kopRes.json().catch(()=>[]);
+        const grafData=await grafRes.json().catch(()=>[]);
+        window._kopData=kopData;
+        window._grafData=grafData;
         kayitliCustomers=await kayitliRes.json();
         const kurData=await kurRes.json();
         DOLAR_KURU=kurData.kur||43;
