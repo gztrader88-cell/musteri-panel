@@ -786,13 +786,18 @@ app.delete('/api/musteri/:hesapNo', async (req, res) => {
     // Mevcut bilgileri al
     const mRes = await pool.query('SELECT m.*, k.komisyon_orani, k.para_birimi, k.es_dost, k.sozlesme_link, k.aktif FROM musteriler m LEFT JOIN musteri_kayit k ON m.hesap_no = k.hesap_no WHERE m.hesap_no = $1', [hesapNo]);
     
-    if (mRes.rows.length > 0) {
-      const m = mRes.rows[0];
-      await pool.query(
-        'INSERT INTO ayrilanlar (hesap_no, isim, son_varlik, para_birimi, es_dost, komisyon_orani, sozlesme_link, aktif) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-        [hesapNo, m.isim, m.varlik||0, m.para_birimi||'TL', m.es_dost||false, m.komisyon_orani||0, m.sozlesme_link||null, m.aktif!==false]
-      );
-    }
+    // Musteriler tablosundan direkt bilgi al (JOIN olmadan)
+    const mDirect = await pool.query('SELECT * FROM musteriler WHERE hesap_no = $1', [hesapNo]);
+    const kDirect = await pool.query('SELECT * FROM musteri_kayit WHERE hesap_no::text = $1::text', [hesapNo]);
+    
+    const mRow = mDirect.rows[0] || {};
+    const kRow = kDirect.rows[0] || {};
+    
+    await pool.query(
+      'INSERT INTO ayrilanlar (hesap_no, isim, son_varlik, para_birimi, es_dost, komisyon_orani, sozlesme_link, aktif) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [hesapNo, mRow.isim||null, mRow.varlik||0, kRow.para_birimi||'TL', kRow.es_dost||false, kRow.komisyon_orani||0, kRow.sozlesme_link||null, kRow.aktif!==false]
+    );
+    console.log('Ayrilanlar kaydi eklendi:', hesapNo, mRow.isim);
 
     // Tüm tablolardan sil
     await pool.query('DELETE FROM musteriler WHERE hesap_no = $1', [hesapNo]);
