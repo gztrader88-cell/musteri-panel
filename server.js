@@ -1286,6 +1286,8 @@ function getMainPage() {
           _grafikData=await gr.json();
         }catch(e){}
         var kopuklukData=_kopuklukData;
+        var kopData=_kopuklukData;
+        var grafData=_grafikData;
         var grafikData=_grafikData;
         const filteredData=allData.filter(c=>!hareketliHesaplar.has(String(c.hesap_no)));
         const todayProfit=filteredData.reduce((s,c)=>s+(parseFloat(c.bugun_kar)||0),0);
