@@ -1396,6 +1396,34 @@ function showGrafikDetay(){
   showAlertModal('📊 Grafik Hatası Olan Hesaplar', html);
 }
 
+function showKopuklukModal(){
+  if(!_kopuklukData||_kopuklukData.length===0)return;
+  var html='';
+  _kopuklukData.forEach(function(k){
+    var sure=Math.round((Date.now()-new Date(k.kopus_zamani).getTime())/60000);
+    html+='<div style="padding:10px 0;border-bottom:1px solid #f0f0f0">'
+         +'<div style="font-weight:600;color:#dc2626">🔴 '+(k.isim||k.hesap_no)+'</div>'
+         +'<div style="font-size:0.78rem;color:#888;margin-top:3px">Hesap: '+k.hesap_no+' &nbsp;|&nbsp; '+sure+' dakikadır kopuk</div>'
+         +'<div style="font-size:0.75rem;color:#aaa;margin-top:2px">'+new Date(k.kopus_zamani).toLocaleString("tr-TR")+'</div>'
+         +'</div>';
+  });
+  showAlertModal('🔴 Bağlantı Kopuk ('+_kopuklukData.length+')', html);
+}
+
+function showGrafikModal(){
+  if(!_grafikData||_grafikData.length===0)return;
+  var html='';
+  _grafikData.forEach(function(g){
+    var sure=Math.round((Date.now()-new Date(g.olusma_zamani).getTime())/60000);
+    html+='<div style="padding:10px 0;border-bottom:1px solid #f0f0f0">'
+         +'<div style="font-weight:600;color:#d97706">📊 '+(g.isim||g.hesap_no)+'</div>'
+         +'<div style="font-size:0.78rem;color:#555;margin-top:4px;white-space:pre-wrap">'+(g.mesaj||'').replace(/</g,"&lt;")+'</div>'
+         +'<div style="font-size:0.75rem;color:#aaa;margin-top:4px">'+sure+' dakikadır | '+new Date(g.olusma_zamani).toLocaleString("tr-TR")+'</div>'
+         +'</div>';
+  });
+  showAlertModal('📊 Grafik Hatası ('+_grafikData.length+')', html);
+}
+
 function showAlertModal(title, content){
   var m=document.getElementById('alertDetailModal');
   if(!m){
