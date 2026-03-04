@@ -1722,7 +1722,6 @@ function getCustomersPage() {
     <button class="filter-btn" onclick="setFilter('esdost', this)">Es-Dost <span class="count-badge" id="countEsDost">0</span></button>
     <button class="filter-btn" onclick="setFilter('kayitsiz', this)">Kayitsiz <span class="count-badge" id="countKayitsiz">0</span></button>
     <button class="filter-btn" onclick="setFilter('sozlesmesiz', this)">Sozlesmesiz <span class="count-badge" id="countSozlesmesiz">0</span></button>
-    <button class="filter-btn" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;margin-left:8px" onclick="showAyrilanlar()">👋 Ayrilanlar</button>
   </div>
 
   <div class="customer-grid" id="customerGrid">
