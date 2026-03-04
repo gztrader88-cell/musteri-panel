@@ -905,6 +905,11 @@ function getMainPage() {
     </div>
   </div>
 
+  <!-- Uyari Baneri (Kopukluk + Grafik) -->
+<div id="uyariBaner" style="display:none;background:#fef2f2;border-bottom:2px solid #ef4444;padding:8px 20px">
+  <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap" id="uyariIcerik"></div>
+</div>
+
   <div class="stats">
     <div class="stat-card"><div class="stat-value" id="totalCustomers">-</div><div class="stat-label">Musteri</div></div>
     <div class="stat-card"><div class="stat-value" id="activeCustomers">-</div><div class="stat-label">Aktif</div></div>
@@ -957,10 +962,7 @@ function getMainPage() {
   </div>
 
   <!-- Ayarlar Modal -->
-  <!-- Uyari Baneri (Kopukluk + Grafik) -->
-<div id="uyariBaner" style="display:none;background:#fef2f2;border-bottom:2px solid #ef4444;padding:8px 20px">
-  <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap" id="uyariIcerik"></div>
-</div>
+  
 
 <!-- Para Hareketleri Modal -->
 <div class="modal" id="paraHareketModal" onclick="if(event.target===this)closeParaHareketModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
