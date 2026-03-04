@@ -782,7 +782,7 @@ function getMainPage() {
     <h1>Musteri Takip Paneli</h1>
     <div class="market-status" id="marketStatus">Piyasa durumu yukleniyor...</div>
     <div class="header-btns">
-      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:none;align-items:center;justify-content:center;font-weight:bold">0</span></button>
+      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative;font-family:inherit">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;align-items:center;justify-content:center;font-weight:bold">0</span></button>
       <a href="/api/export" class="header-btn">📥 Excel</a>
       <button class="header-btn" onclick="showSettings()">⚙️</button>
     </div>
