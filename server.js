@@ -1883,7 +1883,7 @@ function getCustomersPage() {
     }
 
     function musteriSil(hesapNo, isim){
-      if(!confirm(isim + ' isimli müşteriyi silmek istediğinize emin misiniz?\n\nTüm verisi kalıcı olarak silinecek!')) return;
+      if(!confirm(isim + ' isimli musteriyi silmek istiyor musunuz? Tum verisi silinecek!')) return;
       fetch('/api/musteri/'+hesapNo, {method:'DELETE'})
         .then(r=>r.json())
         .then(d=>{
