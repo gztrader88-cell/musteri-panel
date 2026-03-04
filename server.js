@@ -763,6 +763,25 @@ app.get('/api/kopukluklar', async (req, res) => {
   }
 });
 
+// Musteri sil
+app.delete('/api/musteri/:hesapNo', async (req, res) => {
+  try {
+    const { hesapNo } = req.params;
+    
+    // Tüm tablolardan sil
+    await pool.query('DELETE FROM musteriler WHERE hesap_no = $1', [hesapNo]);
+    await pool.query('DELETE FROM musteri_kayit WHERE hesap_no = $1', [hesapNo]);
+    await pool.query('DELETE FROM para_hareketleri WHERE hesap_no = $1', [hesapNo]);
+    await pool.query('DELETE FROM kopukluk_bildirimleri WHERE hesap_no = $1', [hesapNo]);
+    await pool.query('DELETE FROM grafik_uyarilari WHERE hesap_no = $1', [hesapNo]);
+    
+    console.log('Musteri silindi:', hesapNo);
+    res.json({ ok: true });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Para hareketi bildirimi (MQL5'ten gelir)
 app.post('/api/para-hareketi', async (req, res) => {
   try {
@@ -1858,8 +1877,24 @@ function getCustomersPage() {
           '</div>'+
           '<div class="card-footer"><span>Baslangic: '+formatMoney(c.baslangic_parasi||0)+' '+(c.para_birimi||'TL')+'</span><span>%'+bugunPct.toFixed(2)+' bugun</span></div>'+
           makeRdpLink(c)+
+        '<div style="text-align:right;padding:4px 0 2px"><button onclick="event.stopPropagation();musteriSil(\''+c.hesap_no+'\',\''+( c.isim||('#'+c.hesap_no) ).replace(/'/g,'')+'\')" style="background:none;border:1px solid #fca5a5;color:#dc2626;border-radius:6px;padding:3px 10px;font-size:0.72rem;cursor:pointer">🗑 Sil</button></div>'+
         '</div>';
       }).join('');
+    }
+
+    function musteriSil(hesapNo, isim){
+      if(!confirm(isim + ' isimli müşteriyi silmek istediğinize emin misiniz?\n\nTüm verisi kalıcı olarak silinecek!')) return;
+      fetch('/api/musteri/'+hesapNo, {method:'DELETE'})
+        .then(r=>r.json())
+        .then(d=>{
+          if(d.ok){
+            alert(isim+' silindi.');
+            loadData();
+          } else {
+            alert('Hata: '+(d.error||'bilinmeyen'));
+          }
+        })
+        .catch(()=>alert('Bağlantı hatası'));
     }
 
     function openEditModal(c){
