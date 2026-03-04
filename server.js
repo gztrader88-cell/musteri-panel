@@ -1877,7 +1877,7 @@ function getCustomersPage() {
           '</div>'+
           '<div class="card-footer"><span>Baslangic: '+formatMoney(c.baslangic_parasi||0)+' '+(c.para_birimi||'TL')+'</span><span>%'+bugunPct.toFixed(2)+' bugun</span></div>'+
           makeRdpLink(c)+
-        '<div style="text-align:right;padding:4px 0 2px"><button onclick="event.stopPropagation();musteriSil(\''+c.hesap_no+'\',\''+( c.isim||('#'+c.hesap_no) ).replace(/'/g,'')+'\')" style="background:none;border:1px solid #fca5a5;color:#dc2626;border-radius:6px;padding:3px 10px;font-size:0.72rem;cursor:pointer">🗑 Sil</button></div>'+
+        '<div style="text-align:right;padding:4px 0 2px"><button data-hesap="'+c.hesap_no+'" data-isim="'+(c.isim||('#'+c.hesap_no)).replace(/"/g,'')+'" onclick="event.stopPropagation();musteriSil(this.dataset.hesap,this.dataset.isim)" style="background:none;border:1px solid #fca5a5;color:#dc2626;border-radius:6px;padding:3px 10px;font-size:0.72rem;cursor:pointer">🗑 Sil</button></div>'+
         '</div>';
       }).join('');
     }
