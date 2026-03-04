@@ -56,6 +56,17 @@ async function initDB() {
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS sozlesme_link TEXT`);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS kopukluk_bildirimleri (
+        id SERIAL PRIMARY KEY,
+        hesap_no VARCHAR(50),
+        isim VARCHAR(100),
+        durum VARCHAR(20) DEFAULT 'kopuk',
+        kopus_zamani TIMESTAMP DEFAULT NOW(),
+        baglanti_zamani TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS para_hareketleri (
         id SERIAL PRIMARY KEY,
         hesap_no VARCHAR(50),
@@ -631,6 +642,51 @@ app.get('/api/export', async (req, res) => {
 app.get('/', (req, res) => { res.send(getMainPage()); });
 app.get('/musteriler', (req, res) => { res.send(getCustomersPage()); });
 app.get('/robot', (req, res) => { res.send(getRobotPage()); });
+// Kopukluk bildirimi - MQL5'ten gelir
+app.post('/api/kopukluk', async (req, res) => {
+  try {
+    const { hesap_no, isim, durum } = req.body;
+    if (!hesap_no || !durum) return res.status(400).json({ error: 'eksik veri' });
+    
+    if (durum === 'kopuk') {
+      // Zaten kopuk kaydı var mı?
+      const existing = await pool.query(
+        "SELECT id FROM kopukluk_bildirimleri WHERE hesap_no = $1 AND durum = 'kopuk'",
+        [hesap_no]
+      );
+      if (existing.rows.length === 0) {
+        await pool.query(
+          'INSERT INTO kopukluk_bildirimleri (hesap_no, isim, durum) VALUES ($1, $2, $3)',
+          [hesap_no, isim, 'kopuk']
+        );
+        console.log('Kopukluk kaydedildi:', hesap_no, isim);
+      }
+    } else if (durum === 'baglandi') {
+      // Kopuk kaydını kapat
+      await pool.query(
+        "UPDATE kopukluk_bildirimleri SET durum = 'baglandi', baglanti_zamani = NOW() WHERE hesap_no = $1 AND durum = 'kopuk'",
+        [hesap_no]
+      );
+      console.log('Baglanti yeniden kuruldu:', hesap_no, isim);
+    }
+    res.json({ ok: true });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Aktif kopuklukları listele
+app.get('/api/kopukluklar', async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM kopukluk_bildirimleri WHERE durum = 'kopuk' ORDER BY kopus_zamani DESC"
+    );
+    res.json(result.rows);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Para hareketi bildirimi (MQL5'ten gelir)
 app.post('/api/para-hareketi', async (req, res) => {
   try {
@@ -840,7 +896,12 @@ function getMainPage() {
   </div>
 
   <!-- Ayarlar Modal -->
-  <!-- Para Hareketleri Modal -->
+  <!-- Kopukluk Uyari Baneri -->
+<div id="kopuklukBaner" style="display:none;background:#fef2f2;border-bottom:2px solid #ef4444;padding:8px 20px">
+  <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap" id="kopuklukIcerik"></div>
+</div>
+
+<!-- Para Hareketleri Modal -->
 <div class="modal" id="paraHareketModal" onclick="if(event.target===this)closeParaHareketModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:12px;padding:24px;max-width:520px;width:90%;max-height:80vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -1140,8 +1201,33 @@ function getMainPage() {
     loadData();
     setInterval(loadData,30000);
     setInterval(loadParaHareketleri, 30000);
+    setInterval(loadKopukluklar, 30000);
     loadParaHareketleri();
+    loadKopukluklar();
   
+// ===== KOPUKLUK UYARILARI =====
+async function loadKopukluklar(){
+  try{
+    const r = await fetch('/api/kopukluklar');
+    const data = await r.json();
+    const baner = document.getElementById('kopuklukBaner');
+    const icerik = document.getElementById('kopuklukIcerik');
+    if(data.length === 0){
+      baner.style.display = 'none';
+      return;
+    }
+    baner.style.display = 'block';
+    let html = '<span style="color:#dc2626;font-weight:700;font-size:0.85rem">⚠️ BAĞLANTI KOPUK:</span>';
+    data.forEach(k => {
+      const sure = Math.round((Date.now() - new Date(k.kopus_zamani).getTime()) / 60000);
+      html += '<span style="background:#fee2e2;border:1px solid #fca5a5;border-radius:16px;padding:3px 10px;font-size:0.78rem;color:#dc2626;font-weight:600">'
+             + '🔴 ' + (k.isim || k.hesap_no) + ' — ' + sure + ' dk'
+             + '</span>';
+    });
+    icerik.innerHTML = html;
+  }catch(e){}
+}
+
 // ===== PARA HAREKETLERİ =====
 async function loadParaHareketleri(){
   try{
