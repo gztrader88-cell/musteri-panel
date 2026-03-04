@@ -1430,14 +1430,26 @@ function showAlertModal(title, content){
     m=document.createElement('div');
     m.id='alertDetailModal';
     m.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center';
-    m.onclick=function(e){if(e.target===m)m.style.display="none";};
-    m.innerHTML='<div style="background:#fff;border-radius:12px;padding:0;max-width:480px;width:92%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column">'
-      +'<div style="padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">'
-      +'<h3 id="alertDetailTitle" style="font-size:0.95rem;font-weight:600;margin:0"></h3>'
-      +'<button onclick="document.getElementById('alertDetailModal').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:#aaa">×</button>'
-      +'</div>'
-      +'<div id="alertDetailContent" style="padding:16px 20px;overflow-y:auto"></div>'
-      +'</div>';
+    m.onclick=function(e){if(e.target===m)m.style.display='none';};
+    var inner=document.createElement('div');
+    inner.style.cssText='background:#fff;border-radius:12px;padding:0;max-width:480px;width:92%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column';
+    var hdr=document.createElement('div');
+    hdr.style.cssText='padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center';
+    var ttl=document.createElement('h3');
+    ttl.id='alertDetailTitle';
+    ttl.style.cssText='font-size:0.95rem;font-weight:600;margin:0';
+    var cls=document.createElement('button');
+    cls.innerHTML='&times;';
+    cls.style.cssText='background:none;border:none;font-size:1.2rem;cursor:pointer;color:#aaa';
+    cls.onclick=function(){m.style.display='none';};
+    hdr.appendChild(ttl);
+    hdr.appendChild(cls);
+    var body=document.createElement('div');
+    body.id='alertDetailContent';
+    body.style.cssText='padding:16px 20px;overflow-y:auto';
+    inner.appendChild(hdr);
+    inner.appendChild(body);
+    m.appendChild(inner);
     document.body.appendChild(m);
   }
   document.getElementById('alertDetailTitle').textContent=title;
