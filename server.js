@@ -67,6 +67,21 @@ async function initDB() {
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS ayrilanlar (
+        id SERIAL PRIMARY KEY,
+        hesap_no VARCHAR(50),
+        isim VARCHAR(100),
+        son_varlik DECIMAL(20,2),
+        para_birimi VARCHAR(10) DEFAULT 'TL',
+        es_dost BOOLEAN DEFAULT false,
+        komisyon_orani DECIMAL(10,2),
+        sozlesme_link TEXT,
+        aktif BOOLEAN DEFAULT true,
+        ayilis_tarihi TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS grafik_uyarilari (
         id SERIAL PRIMARY KEY,
         hesap_no VARCHAR(50),
@@ -767,7 +782,18 @@ app.get('/api/kopukluklar', async (req, res) => {
 app.delete('/api/musteri/:hesapNo', async (req, res) => {
   try {
     const { hesapNo } = req.params;
+
+    // Mevcut bilgileri al
+    const mRes = await pool.query('SELECT m.*, k.komisyon_orani, k.para_birimi, k.es_dost, k.sozlesme_link, k.aktif FROM musteriler m LEFT JOIN musteri_kayit k ON m.hesap_no = k.hesap_no WHERE m.hesap_no = $1', [hesapNo]);
     
+    if (mRes.rows.length > 0) {
+      const m = mRes.rows[0];
+      await pool.query(
+        'INSERT INTO ayrilanlar (hesap_no, isim, son_varlik, para_birimi, es_dost, komisyon_orani, sozlesme_link, aktif) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [hesapNo, m.isim, m.varlik||0, m.para_birimi||'TL', m.es_dost||false, m.komisyon_orani||0, m.sozlesme_link||null, m.aktif!==false]
+      );
+    }
+
     // Tüm tablolardan sil
     await pool.query('DELETE FROM musteriler WHERE hesap_no = $1', [hesapNo]);
     await pool.query('DELETE FROM musteri_kayit WHERE hesap_no = $1', [hesapNo]);
@@ -775,8 +801,18 @@ app.delete('/api/musteri/:hesapNo', async (req, res) => {
     await pool.query('DELETE FROM kopukluk_bildirimleri WHERE hesap_no = $1', [hesapNo]);
     await pool.query('DELETE FROM grafik_uyarilari WHERE hesap_no = $1', [hesapNo]);
     
-    console.log('Musteri silindi:', hesapNo);
+    console.log('Musteri silindi ve ayrilanlar tablosuna eklendi:', hesapNo);
     res.json({ ok: true });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Ayrılanlar listesi
+app.get('/api/ayrilanlar', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM ayrilanlar ORDER BY ayilis_tarihi DESC');
+    res.json(result.rows);
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
@@ -1681,6 +1717,7 @@ function getCustomersPage() {
     <button class="filter-btn" onclick="setFilter('esdost', this)">Es-Dost <span class="count-badge" id="countEsDost">0</span></button>
     <button class="filter-btn" onclick="setFilter('kayitsiz', this)">Kayitsiz <span class="count-badge" id="countKayitsiz">0</span></button>
     <button class="filter-btn" onclick="setFilter('sozlesmesiz', this)">Sozlesmesiz <span class="count-badge" id="countSozlesmesiz">0</span></button>
+    <button class="filter-btn" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;margin-left:8px" onclick="showAyrilanlar()">👋 Ayrilanlar</button>
   </div>
 
   <div class="customer-grid" id="customerGrid">
@@ -1880,6 +1917,69 @@ function getCustomersPage() {
         '<div style="text-align:right;padding:4px 0 2px"><button data-hesap="'+c.hesap_no+'" data-isim="'+(c.isim||('#'+c.hesap_no)).replace(/"/g,'')+'" onclick="event.stopPropagation();musteriSil(this.dataset.hesap,this.dataset.isim)" style="background:none;border:1px solid #fca5a5;color:#dc2626;border-radius:6px;padding:3px 10px;font-size:0.72rem;cursor:pointer">🗑 Sil</button></div>'+
         '</div>';
       }).join('');
+    }
+
+    async function showAyrilanlar(){
+      var m = document.getElementById('ayrilanlarModal');
+      if(!m){
+        m = document.createElement('div');
+        m.id = 'ayrilanlarModal';
+        m.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center';
+        m.onclick = function(e){if(e.target===m)m.style.display='none';};
+        var box = document.createElement('div');
+        box.style.cssText = 'background:#fff;border-radius:12px;width:92%;max-width:700px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column';
+        var hdr = document.createElement('div');
+        hdr.style.cssText = 'padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;background:#fef3c7';
+        hdr.innerHTML = '<h3 style="font-size:0.95rem;font-weight:700;color:#92400e;margin:0">👋 Ayrılan Müşteriler</h3>';
+        var cls = document.createElement('button');
+        cls.innerHTML = '&times;';
+        cls.style.cssText = 'background:none;border:none;font-size:1.3rem;cursor:pointer;color:#92400e';
+        cls.onclick = function(){m.style.display='none';};
+        hdr.appendChild(cls);
+        var body = document.createElement('div');
+        body.id = 'ayrilanlarBody';
+        body.style.cssText = 'overflow-y:auto;padding:0';
+        box.appendChild(hdr);
+        box.appendChild(body);
+        m.appendChild(box);
+        document.body.appendChild(m);
+      }
+      m.style.display = 'flex';
+      document.getElementById('ayrilanlarBody').innerHTML = '<div style="padding:20px;text-align:center;color:#aaa">Yukleniyor...</div>';
+      try {
+        const r = await fetch('/api/ayrilanlar');
+        const data = await r.json();
+        if(data.length === 0){
+          document.getElementById('ayrilanlarBody').innerHTML = '<div style="padding:30px;text-align:center;color:#aaa">Henuz ayrilanlar yok</div>';
+          return;
+        }
+        var html = '<table style="width:100%;border-collapse:collapse">';
+        html += '<thead><tr style="background:#f8fafc;font-size:0.75rem;color:#666">';
+        html += '<th style="padding:10px 14px;text-align:left;border-bottom:2px solid #e5e7eb">Isim</th>';
+        html += '<th style="padding:10px 14px;text-align:left;border-bottom:2px solid #e5e7eb">Son Varlik</th>';
+        html += '<th style="padding:10px 14px;text-align:left;border-bottom:2px solid #e5e7eb">Durum</th>';
+        html += '<th style="padding:10px 14px;text-align:left;border-bottom:2px solid #e5e7eb">Komisyon</th>';
+        html += '<th style="padding:10px 14px;text-align:left;border-bottom:2px solid #e5e7eb">Ayilis</th>';
+        html += '</tr></thead><tbody>';
+        data.forEach(function(a){
+          var tarih = new Date(a.ayilis_tarihi).toLocaleDateString('tr-TR');
+          var durum = a.es_dost ? '<span style="background:#e0e7ff;color:#3730a3;padding:2px 7px;border-radius:10px;font-size:0.7rem">Es-Dost</span>'
+                    : a.aktif ? '<span style="background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:10px;font-size:0.7rem">Aktif</span>'
+                    : '<span style="background:#f1f5f9;color:#64748b;padding:2px 7px;border-radius:10px;font-size:0.7rem">Pasif</span>';
+          var sozlesme = a.sozlesme_link ? '<a href="'+a.sozlesme_link+'" target="_blank" style="font-size:0.8rem">📄</a>' : '<span style="opacity:0.3">📋</span>';
+          html += '<tr style="border-bottom:1px solid #f0f0f0;font-size:0.82rem">';
+          html += '<td style="padding:10px 14px"><div style="font-weight:600">'+(a.isim||'#'+a.hesap_no)+'</div><div style="color:#aaa;font-size:0.72rem">#'+a.hesap_no+'</div></td>';
+          html += '<td style="padding:10px 14px;font-weight:600">'+new Intl.NumberFormat('tr-TR').format(Math.round(a.son_varlik||0))+' '+(a.para_birimi||'TL')+'</td>';
+          html += '<td style="padding:10px 14px">'+durum+'</td>';
+          html += '<td style="padding:10px 14px">%'+(parseFloat(a.komisyon_orani)||0)+' '+sozlesme+'</td>';
+          html += '<td style="padding:10px 14px;color:#888">'+tarih+'</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('ayrilanlarBody').innerHTML = html;
+      } catch(e){
+        document.getElementById('ayrilanlarBody').innerHTML = '<div style="padding:20px;color:#dc2626">Hata olustu</div>';
+      }
     }
 
     function musteriSil(hesapNo, isim){
