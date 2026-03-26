@@ -6,15 +6,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Robot sayfasi sifre kontrolu
+// Tum sayfa sifre kontrolu
 const ROBOT_SIFRE = process.env.ROBOT_SIFRE || 'robot2024';
 function robotAuth(req, res, next) {
   const cookie = req.headers.cookie || '';
   if (cookie.includes('robot_auth=1')) return next();
-  // Sorgu parametresi ile giris
   if (req.query.sifre === ROBOT_SIFRE) {
     res.setHeader('Set-Cookie', 'robot_auth=1; Path=/; Max-Age=86400; HttpOnly; SameSite=Strict');
-    return next();
+    // Robot sayfasına yönlendirirken query'yi temizle
+    const path = req.path;
+    return res.redirect(path);
   }
   res.send(getRobotLoginPage());
 }
@@ -694,8 +695,8 @@ app.get('/api/export', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => { res.send(getMainPage()); });
-app.get('/musteriler', (req, res) => { res.send(getCustomersPage()); });
+app.get('/', robotAuth, (req, res) => { res.send(getMainPage()); });
+app.get('/musteriler', robotAuth, (req, res) => { res.send(getCustomersPage()); });
 app.get('/robot', robotAuth, (req, res) => { res.send(getRobotPage()); });
 // Grafik uyarısı - MQL5'ten gelir
 app.post('/api/grafik-uyari', async (req, res) => {
