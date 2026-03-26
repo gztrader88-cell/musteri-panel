@@ -6,6 +6,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Robot sayfasi sifre kontrolu
+const ROBOT_SIFRE = process.env.ROBOT_SIFRE || 'robot2024';
+function robotAuth(req, res, next) {
+  const cookie = req.headers.cookie || '';
+  if (cookie.includes('robot_auth=1')) return next();
+  // Sorgu parametresi ile giris
+  if (req.query.sifre === ROBOT_SIFRE) {
+    res.setHeader('Set-Cookie', 'robot_auth=1; Path=/; Max-Age=86400; HttpOnly; SameSite=Strict');
+    return next();
+  }
+  res.send(getRobotLoginPage());
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -683,7 +696,7 @@ app.get('/api/export', async (req, res) => {
 
 app.get('/', (req, res) => { res.send(getMainPage()); });
 app.get('/musteriler', (req, res) => { res.send(getCustomersPage()); });
-app.get('/robot', (req, res) => { res.send(getRobotPage()); });
+app.get('/robot', robotAuth, (req, res) => { res.send(getRobotPage()); });
 // Grafik uyarısı - MQL5'ten gelir
 app.post('/api/grafik-uyari', async (req, res) => {
   try {
@@ -958,7 +971,7 @@ app.get('/api/robot-gunluk', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.get('/robot-detay', (req, res) => { res.send(getRobotDetayPage()); });
+app.get('/robot-detay', robotAuth, (req, res) => { res.send(getRobotDetayPage()); });
 
 // =====================================================
 // ANA SAYFA
@@ -2120,6 +2133,44 @@ function getCustomersPage() {
 }
 
 const PORT = process.env.PORT || 3000;
+
+function getRobotLoginPage() {
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Robot Performans</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(135deg,#1a73e8,#0d47a1);min-height:100vh;display:flex;align-items:center;justify-content:center}
+.box{background:#fff;border-radius:16px;padding:36px 32px;max-width:360px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+h2{font-size:1.2rem;color:#1a1a2e;margin-bottom:6px;text-align:center}
+p{font-size:0.8rem;color:#888;text-align:center;margin-bottom:24px}
+input{width:100%;padding:12px 16px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:1rem;outline:none;margin-bottom:12px;letter-spacing:2px}
+input:focus{border-color:#1a73e8}
+button{width:100%;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer}
+button:hover{background:#1557b0}
+.err{color:#dc2626;font-size:0.78rem;text-align:center;margin-top:8px;display:none}
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>&#x1F4C8; Robot Performans</h2>
+  <p>Bu sayfa şifre korumalıdır</p>
+  <input type="password" id="s" placeholder="Şifre" onkeydown="if(event.key==='Enter')giris()">
+  <button onclick="giris()">Giriş</button>
+  <div class="err" id="err">Yanlış şifre</div>
+</div>
+<script>
+function giris(){
+  var s=document.getElementById('s').value;
+  window.location.href='/robot?sifre='+encodeURIComponent(s);
+}
+</script>
+</body>
+</html>`;
+}
 
 function getRobotPage() {
   return `<!DOCTYPE html>
