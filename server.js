@@ -38,8 +38,9 @@ async function initDB() {
         varlik DECIMAL(20,2),
         toplam_yuzde DECIMAL(10,2),
         bugun_kar DECIMAL(20,2),
-        acik_pozisyon INT,
-        kapali_pozisyon INT,
+        al_pozisyon INT DEFAULT 0,
+        sat_pozisyon INT DEFAULT 0,
+        nakit_pozisyon INT DEFAULT 0,
         buyukluk DECIMAL(20,2),
         bugun_yuzde DECIMAL(10,2),
         son_guncelleme TIMESTAMP DEFAULT NOW()
@@ -68,6 +69,10 @@ async function initDB() {
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_kullanici VARCHAR(100)`);
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_sifre VARCHAR(200)`);
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS sozlesme_link TEXT`);
+
+    await pool.query(`ALTER TABLE musteriler ADD COLUMN IF NOT EXISTS al_pozisyon INT DEFAULT 0`);
+    await pool.query(`ALTER TABLE musteriler ADD COLUMN IF NOT EXISTS sat_pozisyon INT DEFAULT 0`);
+    await pool.query(`ALTER TABLE musteriler ADD COLUMN IF NOT EXISTS nakit_pozisyon INT DEFAULT 0`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS kopukluk_bildirimleri (
@@ -540,14 +545,17 @@ scheduleRobotGunluk();
 
 app.post('/api/veri', async (req, res) => {
   try {
-    const { hesap_no, isim, varlik, toplam_yuzde, bugun_kar, acik, kapali, buyukluk, bugun_yuzde } = req.body;
+    const { hesap_no, isim, varlik, toplam_yuzde, bugun_kar, al_pozisyon, sat_pozisyon, nakit_pozisyon, acik, kapali, buyukluk, bugun_yuzde } = req.body;
+    const al = al_pozisyon !== undefined ? (al_pozisyon||0) : (acik||0);
+    const sat = sat_pozisyon !== undefined ? (sat_pozisyon||0) : 0;
+    const nakit = nakit_pozisyon !== undefined ? (nakit_pozisyon||0) : (kapali||0);
     await pool.query(`
-      INSERT INTO musteriler (hesap_no, isim, varlik, toplam_yuzde, bugun_kar, acik_pozisyon, kapali_pozisyon, buyukluk, bugun_yuzde, son_guncelleme)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      INSERT INTO musteriler (hesap_no, isim, varlik, toplam_yuzde, bugun_kar, al_pozisyon, sat_pozisyon, nakit_pozisyon, buyukluk, bugun_yuzde, son_guncelleme)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
       ON CONFLICT (hesap_no) DO UPDATE SET
         isim=$2, varlik=$3, toplam_yuzde=$4, bugun_kar=$5,
-        acik_pozisyon=$6, kapali_pozisyon=$7, buyukluk=$8, bugun_yuzde=$9, son_guncelleme=NOW()
-    `, [hesap_no, isim, varlik, toplam_yuzde, bugun_kar, acik, kapali, buyukluk, bugun_yuzde]);
+        al_pozisyon=$6, sat_pozisyon=$7, nakit_pozisyon=$8, buyukluk=$9, bugun_yuzde=$10, son_guncelleme=NOW()
+    `, [hesap_no, isim, varlik, toplam_yuzde, bugun_kar, al, sat, nakit, buyukluk, bugun_yuzde]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -572,7 +580,7 @@ app.get('/api/musteriler', async (req, res) => {
 app.get('/api/kayitli', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT mk.*, m.isim, m.varlik, m.bugun_kar, m.bugun_yuzde, m.acik_pozisyon, m.son_guncelleme
+      SELECT mk.*, m.isim, m.varlik, m.bugun_kar, m.bugun_yuzde, m.al_pozisyon, m.sat_pozisyon, m.nakit_pozisyon, m.son_guncelleme
       FROM musteri_kayit mk
       LEFT JOIN musteriler m ON mk.hesap_no = m.hesap_no
       ORDER BY mk.created_at DESC
@@ -1088,7 +1096,7 @@ function getMainPage() {
     <div class="table-wrapper">
       <table>
         <thead>
-          <tr><th></th><th>Isim</th><th>Varlik</th><th>Bugun</th><th>%</th><th>Acik</th><th>Kmsy</th></tr>
+          <tr><th></th><th>Isim</th><th>Varlik</th><th>Bugun</th><th>%</th><th>Al</th><th>Sat</th><th>Nakit</th><th>Kmsy</th></tr>
         </thead>
         <tbody id="customerTable">
           <tr><td colspan="7" style="text-align:center;padding:30px">Yukleniyor...</td></tr>
