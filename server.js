@@ -134,7 +134,21 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log('Tablolar hazir');
+    // === SINYAL SISTEMI: Sinyaller tablosu ===
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sinyaller (
+        id SERIAL PRIMARY KEY,
+        hisse VARCHAR(20) UNIQUE,
+        bar_time VARCHAR(30),
+        side_buy INT DEFAULT 0,
+        skor DECIMAL(10,2) DEFAULT 0,
+        sma_ustunde BOOLEAN DEFAULT true,
+        sma_altinda BOOLEAN DEFAULT false,
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    console.log('Tablolar hazir (sinyaller dahil)');
 
     const check = await pool.query('SELECT COUNT(*) FROM musteri_kayit');
     if (parseInt(check.rows[0].count) === 0) {
@@ -1061,7 +1075,7 @@ function getMainPage() {
     <h1>Musteri Takip Paneli</h1>
     <div class="market-status" id="marketStatus">Piyasa durumu yukleniyor...</div>
     <div class="header-btns">
-      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative;font-family:inherit">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;align-items:center;justify-content:center;font-weight:bold">0</span></button>
+      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><a href="/sinyaller" class="header-btn">📡 Sinyaller</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative;font-family:inherit">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;align-items:center;justify-content:center;font-weight:bold">0</span></button>
       <a href="/api/export" class="header-btn">📥 Excel</a>
       <button class="header-btn" onclick="showSettings()">⚙️</button>
     </div>
@@ -2240,6 +2254,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="header-btns">
     <a href="/" class="hbtn">&#x1F3E0; Ana Sayfa</a>
     <a href="/musteriler" class="hbtn">&#x1F465; Musteriler</a>
+    <a href="/sinyaller" class="hbtn">&#x1F4E1; Sinyaller</a>
     <a href="/robot-detay" class="hbtn">&#x1F4CB; Gunluk Veri</a>
     <button onclick="exportExcel()" class="hbtn">&#x1F4E5; Excel</button>
   </div>
@@ -2594,6 +2609,184 @@ async function saveEdit(){
 }
 
 init();
+</script>
+</body>
+</html>`;
+}
+
+// =====================================================
+// SINYAL SISTEMI API
+// =====================================================
+
+// TradingView webhook'tan sinyal al (POST)
+app.post('/api/sinyal', async (req, res) => {
+  try {
+    const { hisse, barTime, sideBuy, skor, smaUstunde, smaAltinda } = req.body;
+    if (!hisse || barTime === undefined) return res.status(400).json({ error: 'hisse ve barTime zorunlu' });
+    await pool.query(`
+      INSERT INTO sinyaller (hisse, bar_time, side_buy, skor, sma_ustunde, sma_altinda, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      ON CONFLICT (hisse) DO UPDATE SET
+        bar_time = $2, side_buy = $3, skor = $4, sma_ustunde = $5, sma_altinda = $6, updated_at = NOW()
+    `, [hisse.toUpperCase(), barTime, sideBuy || 0, skor || 0, smaUstunde !== undefined ? smaUstunde : true, smaAltinda !== undefined ? smaAltinda : false]);
+    console.log('Sinyal alindi:', hisse, 'sideBuy:', sideBuy, 'skor:', skor, 'barTime:', barTime);
+    res.json({ ok: true });
+  } catch (err) { console.error('Sinyal kayit hatasi:', err.message); res.status(500).json({ error: err.message }); }
+});
+
+// Musteri EA sinyal okur (GET)
+app.get('/api/sinyal', async (req, res) => {
+  try {
+    const { hisse } = req.query;
+    if (!hisse) { const result = await pool.query('SELECT * FROM sinyaller ORDER BY hisse'); return res.json(result.rows); }
+    const result = await pool.query('SELECT * FROM sinyaller WHERE hisse = $1', [hisse.toUpperCase()]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'sinyal bulunamadi', hisse });
+    const row = result.rows[0];
+    res.json({ hisse: row.hisse, barTime: row.bar_time, sideBuy: row.side_buy, skor: parseFloat(row.skor), smaUstunde: row.sma_ustunde, smaAltinda: row.sma_altinda, updatedAt: row.updated_at });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sinyal + musteri pozisyon karsilastirmasi
+app.get('/api/sinyal-durum', async (req, res) => {
+  try {
+    const sinyalResult = await pool.query('SELECT * FROM sinyaller ORDER BY hisse');
+    const musteriResult = await pool.query(`SELECT m.hesap_no, m.isim, m.al_pozisyon, m.sat_pozisyon, m.nakit_pozisyon, m.son_guncelleme, k.aktif FROM musteriler m LEFT JOIN musteri_kayit k ON m.hesap_no = k.hesap_no ORDER BY m.isim`);
+    res.json({ sinyaller: sinyalResult.rows, musteriler: musteriResult.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sinyaller sayfasi
+app.get('/sinyaller', robotAuth, (req, res) => { res.send(getSinyallerPage()); });
+
+function getSinyallerPage() {
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sinyal Takip</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0e1a;color:#c8ccd4;font-size:14px}
+    .header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid #1e293b;padding:14px 20px;display:flex;align-items:center;justify-content:space-between}
+    .header h1{font-size:1.1rem;font-weight:600;color:#e2e8f0}
+    .hbtn{background:rgba(255,255,255,0.08);color:#94a3b8;border:1px solid #334155;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.78rem;text-decoration:none}
+    .hbtn:hover{background:rgba(255,255,255,0.12);color:#e2e8f0}
+    .container{max-width:1200px;margin:0 auto;padding:16px}
+    .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+    .stat-box{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:16px;text-align:center}
+    .stat-val{font-size:1.6rem;font-weight:700}
+    .stat-lbl{font-size:0.68rem;color:#64748b;margin-top:4px;text-transform:uppercase;letter-spacing:0.05em}
+    .green{color:#22c55e}.red{color:#ef4444}.amber{color:#f59e0b}.blue{color:#3b82f6}.gray{color:#64748b}
+    .section{background:#111827;border:1px solid #1e293b;border-radius:10px;margin-bottom:16px;overflow:hidden}
+    .section-header{padding:14px 18px;border-bottom:1px solid #1e293b;display:flex;justify-content:space-between;align-items:center}
+    .section-title{font-size:0.85rem;font-weight:600;color:#e2e8f0}
+    .section-badge{font-size:0.7rem;padding:3px 10px;border-radius:12px;font-weight:600}
+    .badge-green{background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3)}
+    .badge-red{background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3)}
+    .sinyal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1px;background:#1e293b}
+    .sinyal-card{background:#0f172a;padding:16px;text-align:center}
+    .sinyal-hisse{font-size:0.75rem;color:#64748b;margin-bottom:4px;letter-spacing:0.05em}
+    .sinyal-yon{font-size:1.4rem;font-weight:700;margin-bottom:2px}
+    .sinyal-skor{font-size:0.78rem;color:#94a3b8}
+    .sinyal-time{font-size:0.65rem;color:#475569;margin-top:6px}
+    .uyumsuz-table{width:100%;border-collapse:collapse}
+    .uyumsuz-table th{padding:10px 14px;text-align:left;font-size:0.7rem;color:#64748b;font-weight:600;border-bottom:1px solid #1e293b;text-transform:uppercase}
+    .uyumsuz-table td{padding:10px 14px;border-bottom:1px solid rgba(30,41,59,0.5);font-size:0.82rem}
+    .uyumsuz-table tr:hover{background:rgba(255,255,255,0.02)}
+    .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+    .dot-green{background:#22c55e}.dot-red{background:#ef4444}.dot-amber{background:#f59e0b}.dot-gray{background:#475569}
+    .empty-state{padding:40px;text-align:center;color:#475569;font-size:0.85rem}
+    .pulse{animation:pulse 2s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+    .refresh-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 0;margin-bottom:12px}
+    .refresh-info{font-size:0.7rem;color:#475569}
+    .refresh-btn{background:#1e293b;color:#94a3b8;border:1px solid #334155;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.75rem}
+    .refresh-btn:hover{background:#334155;color:#e2e8f0}
+    .test-bar{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .test-input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:4px;font-size:0.78rem;width:100px}
+    .test-select{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:4px;font-size:0.78rem}
+    .test-btn{background:#3b82f6;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.78rem}
+    .test-btn:hover{background:#2563eb}
+    .test-label{font-size:0.7rem;color:#64748b}
+    @media(max-width:600px){.stats-row{grid-template-columns:repeat(2,1fr)}.sinyal-grid{grid-template-columns:repeat(2,1fr)}.test-bar{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>&#x1F4E1; Sinyal Takip Paneli</h1>
+    <div style="display:flex;gap:8px">
+      <a href="/" class="hbtn">Ana Sayfa</a>
+      <a href="/musteriler" class="hbtn">Musteriler</a>
+      <a href="/robot" class="hbtn">Robot</a>
+    </div>
+  </div>
+  <div class="container">
+    <div class="refresh-bar">
+      <div class="refresh-info">Son guncelleme: <span id="lastRefresh">-</span> | Otomatik: 15sn</div>
+      <button class="refresh-btn" onclick="loadAll()">Yenile</button>
+    </div>
+    <div class="test-bar">
+      <span class="test-label">Test Sinyal:</span>
+      <input type="text" id="testHisse" class="test-input" placeholder="GARAN" value="GARAN">
+      <select id="testYon" class="test-select"><option value="1">AL</option><option value="-1">SAT</option><option value="0">NAKIT</option></select>
+      <input type="number" id="testSkor" class="test-input" placeholder="Skor" value="42.5" step="0.1">
+      <button class="test-btn" onclick="testSinyal()">Gonder</button>
+      <span id="testRes" style="font-size:0.75rem"></span>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box"><div class="stat-val green" id="sAl">-</div><div class="stat-lbl">AL Sinyali</div></div>
+      <div class="stat-box"><div class="stat-val red" id="sSat">-</div><div class="stat-lbl">SAT Sinyali</div></div>
+      <div class="stat-box"><div class="stat-val gray" id="sNakit">-</div><div class="stat-lbl">NAKIT</div></div>
+      <div class="stat-box"><div class="stat-val amber" id="sUyumsuz">-</div><div class="stat-lbl">Uyumsuz</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header"><span class="section-title">TradingView Sinyalleri</span><span class="section-badge badge-green" id="sinyalBadge">-</span></div>
+      <div class="sinyal-grid" id="sinyalGrid"><div class="empty-state">Sinyal bekleniyor...</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header"><span class="section-title">Uyumsuz Pozisyonlar</span><span class="section-badge badge-red" id="uyumsuzBadge">0</span></div>
+      <div id="uyumsuzBody"><div class="empty-state">Tum musteriler uyumlu</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header"><span class="section-title">Sinyal Detaylari</span></div>
+      <div id="detayBody"><div class="empty-state">Veri yukleniyor...</div></div>
+    </div>
+  </div>
+<script>
+var sinyalData=[],musteriData=[];
+function yonStr(s){return s==1?'AL':s==-1?'SAT':'NAKIT';}
+function yonCls(s){return s==1?'green':s==-1?'red':'gray';}
+function dotCls(s){return s==1?'dot-green':s==-1?'dot-red':'dot-gray';}
+function tSince(dt){if(!dt)return'-';var d=Math.round((Date.now()-new Date(dt).getTime())/1000);if(d<60)return d+' sn';if(d<3600)return Math.floor(d/60)+' dk';if(d<86400)return Math.floor(d/3600)+' saat';return Math.floor(d/86400)+' gun';}
+function isBayat(dt){return !dt||(Date.now()-new Date(dt).getTime())>7200000;}
+async function testSinyal(){
+  var h=document.getElementById('testHisse').value.toUpperCase();
+  var sb=parseInt(document.getElementById('testYon').value);
+  var sk=parseFloat(document.getElementById('testSkor').value)||0;
+  var n=new Date();
+  var bt=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')+'T'+String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+  try{var r=await fetch('/api/sinyal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hisse:h,barTime:bt,sideBuy:sb,skor:sk,smaUstunde:sb>=0,smaAltinda:sb<0})});var d=await r.json();document.getElementById('testRes').textContent=d.ok?'OK!':'Hata';document.getElementById('testRes').style.color=d.ok?'#22c55e':'#ef4444';setTimeout(function(){document.getElementById('testRes').textContent='';},3000);loadAll();}catch(e){document.getElementById('testRes').textContent='Hata';document.getElementById('testRes').style.color='#ef4444';}
+}
+async function loadAll(){
+  try{var r=await fetch('/api/sinyal-durum');var data=await r.json();sinyalData=data.sinyaller||[];musteriData=data.musteriler||[];render();document.getElementById('lastRefresh').textContent=new Date().toLocaleTimeString('tr-TR');}catch(e){console.error(e);}
+}
+function render(){
+  var al=0,sat=0,nak=0;sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);if(sb===1)al++;else if(sb===-1)sat++;else nak++;});
+  document.getElementById('sAl').textContent=al;document.getElementById('sSat').textContent=sat;document.getElementById('sNakit').textContent=nak;
+  document.getElementById('sinyalBadge').textContent=sinyalData.length+' hisse';
+  var gh='';
+  if(!sinyalData.length){gh='<div class="empty-state" style="grid-column:1/-1">Henuz sinyal gelmedi. Test alani ile manuel gonderebilirsiniz.</div>';}
+  else{sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);var bay=isBayat(s.updated_at);gh+='<div class="sinyal-card"><div class="sinyal-hisse">'+s.hisse+'</div><div class="sinyal-yon '+yonCls(sb)+'">'+yonStr(sb)+'</div><div class="sinyal-skor">Skor: '+(parseFloat(s.skor)||0).toFixed(1)+'</div><div class="sinyal-time">'+(s.sma_ustunde?'SMA Ust':'SMA Alt')+'</div><div class="sinyal-time">Bar: '+(s.bar_time||'-')+(bay?' <span class="pulse" style="color:#ef4444">BAYAT</span>':'')+'</div><div class="sinyal-time">'+tSince(s.updated_at)+' once</div></div>';});}
+  document.getElementById('sinyalGrid').innerHTML=gh;
+  var topAl=al,topSat=sat,uys=[];
+  musteriData.forEach(function(m){var mAl=parseInt(m.al_pozisyon)||0;var mSat=parseInt(m.sat_pozisyon)||0;var mNak=parseInt(m.nakit_pozisyon)||0;var alF=mAl-topAl,satF=mSat-topSat;if(alF!==0||satF!==0)uys.push({isim:m.isim||m.hesap_no,hesap:m.hesap_no,al:mAl,sat:mSat,nakit:mNak,bAl:topAl,bSat:topSat,alF:alF,satF:satF,son:m.son_guncelleme});});
+  document.getElementById('sUyumsuz').textContent=uys.length;document.getElementById('uyumsuzBadge').textContent=uys.length;
+  if(!uys.length){document.getElementById('uyumsuzBody').innerHTML='<div class="empty-state" style="color:#22c55e">Tum musteriler uyumlu</div>';}
+  else{var th='<table class="uyumsuz-table"><thead><tr><th>Musteri</th><th>AL</th><th>SAT</th><th>Beklenen AL</th><th>Beklenen SAT</th><th>Fark</th><th>Son</th></tr></thead><tbody>';uys.forEach(function(u){var f='';if(u.alF>0)f+='<span class="amber">AL +'+u.alF+'</span> ';if(u.alF<0)f+='<span class="red">AL '+u.alF+'</span> ';if(u.satF>0)f+='<span class="amber">SAT +'+u.satF+'</span> ';if(u.satF<0)f+='<span class="red">SAT '+u.satF+'</span> ';th+='<tr><td><span class="dot dot-amber"></span>'+u.isim+'<br><small style="color:#475569">#'+u.hesap+'</small></td><td class="green">'+u.al+'</td><td class="red">'+u.sat+'</td><td class="green">'+u.bAl+'</td><td class="red">'+u.bSat+'</td><td>'+f+'</td><td style="color:#475569;font-size:0.75rem">'+tSince(u.son)+'</td></tr>';});th+='</tbody></table>';document.getElementById('uyumsuzBody').innerHTML=th;}
+  if(sinyalData.length){var dh='<table class="uyumsuz-table"><thead><tr><th>Hisse</th><th>Yon</th><th>Skor</th><th>SMA</th><th>Bar</th><th>Guncelleme</th><th>Durum</th></tr></thead><tbody>';sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);var bay=isBayat(s.updated_at);dh+='<tr><td style="font-weight:600">'+s.hisse+'</td><td><span class="dot '+dotCls(sb)+'"></span><span class="'+yonCls(sb)+'">'+yonStr(sb)+'</span></td><td>'+(parseFloat(s.skor)||0).toFixed(1)+'</td><td>'+(s.sma_ustunde?'<span class="green">Ust</span>':'<span class="red">Alt</span>')+'</td><td style="color:#94a3b8;font-size:0.78rem">'+(s.bar_time||'-')+'</td><td style="color:#475569;font-size:0.75rem">'+tSince(s.updated_at)+' once</td><td>'+(bay?'<span class="pulse" style="color:#ef4444">Bayat</span>':'<span style="color:#22c55e">Taze</span>')+'</td></tr>';});dh+='</tbody></table>';document.getElementById('detayBody').innerHTML=dh;}
+}
+loadAll();setInterval(loadAll,15000);
 </script>
 </body>
 </html>`;
