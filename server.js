@@ -2770,7 +2770,7 @@ async function testSinyal(){
   try{var r=await fetch('/api/sinyal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hisse:h,barTime:bt,sideBuy:sb,skor:sk,smaUstunde:sb>=0,smaAltinda:sb<0})});var d=await r.json();document.getElementById('testRes').textContent=d.ok?'OK!':'Hata';document.getElementById('testRes').style.color=d.ok?'#22c55e':'#ef4444';setTimeout(function(){document.getElementById('testRes').textContent='';},3000);loadAll();}catch(e){document.getElementById('testRes').textContent='Hata';document.getElementById('testRes').style.color='#ef4444';}
 }
 async function loadAll(){
-  try{var r=await fetch('/api/sinyal-durum');var data=await r.json();sinyalData=data.sinyaller||[];musteriData=data.musteriler||[];render();document.getElementById('lastRefresh').textContent=new Date().toLocaleTimeString('tr-TR');}catch(e){console.error(e);}
+  try{var r=await fetch('/api/sinyal-durum?t='+Date.now());var data=await r.json();sinyalData=data.sinyaller||[];musteriData=data.musteriler||[];render();document.getElementById('lastRefresh').textContent=new Date().toLocaleTimeString('tr-TR');}catch(e){console.error(e);}
 }
 function render(){
   var al=0,sat=0,nak=0;sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);if(sb===1)al++;else if(sb===-1)sat++;else nak++;});
