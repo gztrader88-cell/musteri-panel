@@ -1068,7 +1068,7 @@ function getMainPage() {
   </div>
 
   <div class="stats">
-    <div class="stat-card"><div class="stat-value" id="totalCustomers">-</div><div class="stat-label">Musteri</div></div>
+    <div class="stat-card"><div class="stat-value" id="totalCustomers" style="cursor:pointer" onclick="showMusteriKarsilastirma()">-</div><div class="stat-label">Musteri</div></div>
     <div class="stat-card"><div class="stat-value" id="activeCustomers">-</div><div class="stat-label">Aktif</div></div>
     <div class="stat-card"><div class="stat-value" id="totalBalance">-</div><div class="stat-label">Toplam Varlik</div></div>
     <div class="stat-card"><div class="stat-value" id="todayProfit">-</div><div class="stat-label">Bugun Kar</div></div>
@@ -1441,6 +1441,24 @@ function getMainPage() {
     function showPosIssues(){const maj=getMajorityPosition(allData);showModal('Pozisyon Farki',allData.filter(c=>(c.acik_pozisyon||0)!==maj).map(c=>(c.isim||'-')+' - Acik: '+(c.acik_pozisyon||0)+' (gereken: '+maj+')'));}
     function showOutliers(){const {mean}=getStdDev(allData);showModal('Kar Sapmasi',allData.filter(c=>Math.abs((parseFloat(c.bugun_yuzde)||0)-mean)>getStdDev(allData).stdDev*2).map(c=>(c.isim||'-')+' - '+(parseFloat(c.bugun_yuzde)||0).toFixed(2)+'% (ort: '+mean.toFixed(2)+'%)'));}
     function showGelmeyenler(){const gelenIDs=allData.map(m=>m.hesap_no);showModal('Veri Gelmeyen Musteriler',kayitliData.filter(k=>k.aktif!==false&&!gelenIDs.includes(k.hesap_no)).map(k=>'#'+k.hesap_no));}
+
+    function showMusteriKarsilastirma(){
+      const gelenIDs=allData.map(m=>m.hesap_no);
+      const kayitliIDs=kayitliData.filter(k=>k.aktif!==false).map(k=>k.hesap_no);
+      const kayitsizlar=allData.filter(c=>!kayitliIDs.includes(c.hesap_no));
+      const veriGelmeyenler=kayitliData.filter(k=>k.aktif!==false&&!gelenIDs.includes(k.hesap_no));
+      let items=[];
+      if(kayitsizlar.length>0){
+        items.push('<strong style="color:#dc2626">Veri geliyor ama kayıt defterinde yok ('+kayitsizlar.length+'):</strong>');
+        kayitsizlar.forEach(c=>items.push('&nbsp;&nbsp;• '+(c.isim||'-')+' (#'+c.hesap_no+')'));
+      }
+      if(veriGelmeyenler.length>0){
+        items.push('<strong style="color:#d97706">Kayıtlı ama veri gelmiyor ('+veriGelmeyenler.length+'):</strong>');
+        veriGelmeyenler.forEach(k=>items.push('&nbsp;&nbsp;• #'+k.hesap_no));
+      }
+      if(items.length===0) items.push('Tum musteriler eslesik - sorun yok');
+      showModal('Musteri Karsilastirmasi ('+allData.length+' veri / '+kayitliData.filter(k=>k.aktif!==false).length+' kayitli)',items);
+    }
     loadData();
     setInterval(loadData,30000);
     setInterval(loadParaHareketleri, 30000);
