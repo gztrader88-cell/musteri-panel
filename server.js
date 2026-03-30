@@ -148,7 +148,19 @@ async function initDB() {
       )
     `);
 
-    console.log('Tablolar hazir (sinyaller dahil)');
+    // === POZISYON DETAY TABLOSU ===
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS musteri_pozisyonlar (
+        id SERIAL PRIMARY KEY,
+        hesap_no VARCHAR(50),
+        hisse VARCHAR(20),
+        yon VARCHAR(10) DEFAULT 'NAKIT',
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(hesap_no, hisse)
+      )
+    `);
+
+    console.log('Tablolar hazir (sinyaller + pozisyon detay dahil)');
 
     const check = await pool.query('SELECT COUNT(*) FROM musteri_kayit');
     if (parseInt(check.rows[0].count) === 0) {
@@ -2650,9 +2662,41 @@ app.get('/api/sinyal', async (req, res) => {
 app.get('/api/sinyal-durum', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   try {
-    const sinyalResult = await pool.query('SELECT id, hisse, bar_time, side_buy, skor::text, sma_ustunde, sma_altinda, updated_at FROM sinyaller ORDER BY updated_at DESC');
+    const sinyalResult = await pool.query('SELECT id, hisse, bar_time, side_buy, skor::text, sma_ustunde, sma_altinda, updated_at FROM sinyaller ORDER BY hisse');
     const musteriResult = await pool.query(`SELECT m.hesap_no, m.isim, m.al_pozisyon, m.sat_pozisyon, m.nakit_pozisyon, m.son_guncelleme, k.aktif FROM musteriler m LEFT JOIN musteri_kayit k ON m.hesap_no = k.hesap_no ORDER BY m.isim`);
-    res.json({ sinyaller: sinyalResult.rows, musteriler: musteriResult.rows });
+    const pozDetayResult = await pool.query('SELECT hesap_no, hisse, yon, updated_at FROM musteri_pozisyonlar ORDER BY hesap_no, hisse');
+    res.json({ sinyaller: sinyalResult.rows, musteriler: musteriResult.rows, pozisyon_detay: pozDetayResult.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// BildirimBot'tan hisse bazli pozisyon detayi al (POST)
+app.post('/api/pozisyon-detay', async (req, res) => {
+  try {
+    const { hesap_no, pozisyonlar } = req.body;
+    if (!hesap_no || !pozisyonlar) return res.status(400).json({ error: 'hesap_no ve pozisyonlar zorunlu' });
+    
+    for (const [hisse, yon] of Object.entries(pozisyonlar)) {
+      await pool.query(`
+        INSERT INTO musteri_pozisyonlar (hesap_no, hisse, yon, updated_at)
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (hesap_no, hisse) DO UPDATE SET yon = $3, updated_at = NOW()
+      `, [hesap_no, hisse.toUpperCase(), yon]);
+    }
+    
+    res.json({ ok: true });
+  } catch (err) { console.error('Pozisyon detay hatasi:', err.message); res.status(500).json({ error: err.message }); }
+});
+
+// Tek musteri pozisyon detayi (GET)
+app.get('/api/pozisyon-detay', async (req, res) => {
+  try {
+    const { hesap_no } = req.query;
+    if (hesap_no) {
+      const result = await pool.query('SELECT hisse, yon, updated_at FROM musteri_pozisyonlar WHERE hesap_no = $1 ORDER BY hisse', [hesap_no]);
+      return res.json(result.rows);
+    }
+    const result = await pool.query('SELECT hesap_no, hisse, yon, updated_at FROM musteri_pozisyonlar ORDER BY hesap_no, hisse');
+    res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2755,12 +2799,13 @@ function getSinyallerPage() {
     </div>
   </div>
 <script>
-var sinyalData=[],musteriData=[];
+var sinyalData=[],musteriData=[],pozDetayData=[];
 function yonStr(s){return s==1?'AL':s==-1?'SAT':'NAKIT';}
 function yonCls(s){return s==1?'green':s==-1?'red':'gray';}
 function dotCls(s){return s==1?'dot-green':s==-1?'dot-red':'dot-gray';}
 function tSince(dt){if(!dt)return'-';var d=Math.round((Date.now()-new Date(dt).getTime())/1000);if(d<60)return d+' sn';if(d<3600)return Math.floor(d/60)+' dk';if(d<86400)return Math.floor(d/3600)+' saat';return Math.floor(d/86400)+' gun';}
 function isBayat(dt){return !dt||(Date.now()-new Date(dt).getTime())>7200000;}
+function sinyalYon(sb){return parseInt(sb)===1?'AL':parseInt(sb)===-1?'SAT':'NAKIT';}
 async function testSinyal(){
   var h=document.getElementById('testHisse').value.toUpperCase();
   var sb=parseInt(document.getElementById('testYon').value);
@@ -2770,7 +2815,7 @@ async function testSinyal(){
   try{var r=await fetch('/api/sinyal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hisse:h,barTime:bt,sideBuy:sb,skor:sk,smaUstunde:sb>=0,smaAltinda:sb<0})});var d=await r.json();document.getElementById('testRes').textContent=d.ok?'OK!':'Hata';document.getElementById('testRes').style.color=d.ok?'#22c55e':'#ef4444';setTimeout(function(){document.getElementById('testRes').textContent='';},3000);loadAll();}catch(e){document.getElementById('testRes').textContent='Hata';document.getElementById('testRes').style.color='#ef4444';}
 }
 async function loadAll(){
-  try{var r=await fetch('/api/sinyal-durum?t='+Date.now());var data=await r.json();sinyalData=data.sinyaller||[];musteriData=data.musteriler||[];render();document.getElementById('lastRefresh').textContent=new Date().toLocaleTimeString('tr-TR');}catch(e){console.error(e);}
+  try{var r=await fetch('/api/sinyal-durum?t='+Date.now());var data=await r.json();sinyalData=data.sinyaller||[];musteriData=data.musteriler||[];pozDetayData=data.pozisyon_detay||[];render();document.getElementById('lastRefresh').textContent=new Date().toLocaleTimeString('tr-TR');}catch(e){console.error(e);}
 }
 function render(){
   var al=0,sat=0,nak=0;sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);if(sb===1)al++;else if(sb===-1)sat++;else nak++;});
@@ -2780,11 +2825,56 @@ function render(){
   if(!sinyalData.length){gh='<div class="empty-state" style="grid-column:1/-1">Henuz sinyal gelmedi. Test alani ile manuel gonderebilirsiniz.</div>';}
   else{sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);var bay=isBayat(s.updated_at);gh+='<div class="sinyal-card"><div class="sinyal-hisse">'+s.hisse+'</div><div class="sinyal-yon '+yonCls(sb)+'">'+yonStr(sb)+'</div><div class="sinyal-skor">Skor: '+(parseFloat(s.skor)||0).toFixed(1)+'</div><div class="sinyal-time">'+(s.sma_ustunde?'SMA Ust':'SMA Alt')+'</div><div class="sinyal-time">Bar: '+(s.bar_time||'-')+(bay?' <span class="pulse" style="color:#ef4444">BAYAT</span>':'')+'</div><div class="sinyal-time">'+tSince(s.updated_at)+' once</div></div>';});}
   document.getElementById('sinyalGrid').innerHTML=gh;
-  var topAl=al,topSat=sat,uys=[];
-  musteriData.forEach(function(m){var mAl=parseInt(m.al_pozisyon)||0;var mSat=parseInt(m.sat_pozisyon)||0;var mNak=parseInt(m.nakit_pozisyon)||0;var alF=mAl-topAl,satF=mSat-topSat;if(alF!==0||satF!==0)uys.push({isim:m.isim||m.hesap_no,hesap:m.hesap_no,al:mAl,sat:mSat,nakit:mNak,bAl:topAl,bSat:topSat,alF:alF,satF:satF,son:m.son_guncelleme});});
+
+  // === HİSSE BAZLI UYUMSUZLUK KONTROLÜ ===
+  // Sinyal haritası: {GARAN: "AL", THYAO: "NAKIT", ...}
+  var sinyalMap={};
+  sinyalData.forEach(function(s){sinyalMap[s.hisse]=sinyalYon(s.side_buy);});
+
+  // Müşteri pozisyon detay haritası: {hesap_no: {GARAN: "AL", THYAO: "NAKIT"}}
+  var musteriPozMap={};
+  pozDetayData.forEach(function(p){
+    if(!musteriPozMap[p.hesap_no]) musteriPozMap[p.hesap_no]={};
+    musteriPozMap[p.hesap_no][p.hisse]=p.yon;
+  });
+
+  // Uyumsuzluk tespiti
+  var uys=[];
+  musteriData.forEach(function(m){
+    var hesap=m.hesap_no;
+    var pozlar=musteriPozMap[hesap];
+    if(!pozlar) return; // Pozisyon detayı henüz gelmemiş
+    var farklar=[];
+    for(var hisse in sinyalMap){
+      var beklenen=sinyalMap[hisse];
+      var gercek=pozlar[hisse]||'NAKIT';
+      if(beklenen!==gercek){
+        farklar.push({hisse:hisse,beklenen:beklenen,gercek:gercek});
+      }
+    }
+    if(farklar.length>0){
+      uys.push({isim:m.isim||hesap,hesap:hesap,farklar:farklar,son:m.son_guncelleme});
+    }
+  });
+
   document.getElementById('sUyumsuz').textContent=uys.length;document.getElementById('uyumsuzBadge').textContent=uys.length;
   if(!uys.length){document.getElementById('uyumsuzBody').innerHTML='<div class="empty-state" style="color:#22c55e">Tum musteriler uyumlu</div>';}
-  else{var th='<table class="uyumsuz-table"><thead><tr><th>Musteri</th><th>AL</th><th>SAT</th><th>Beklenen AL</th><th>Beklenen SAT</th><th>Fark</th><th>Son</th></tr></thead><tbody>';uys.forEach(function(u){var f='';if(u.alF>0)f+='<span class="amber">AL +'+u.alF+'</span> ';if(u.alF<0)f+='<span class="red">AL '+u.alF+'</span> ';if(u.satF>0)f+='<span class="amber">SAT +'+u.satF+'</span> ';if(u.satF<0)f+='<span class="red">SAT '+u.satF+'</span> ';th+='<tr><td><span class="dot dot-amber"></span>'+u.isim+'<br><small style="color:#475569">#'+u.hesap+'</small></td><td class="green">'+u.al+'</td><td class="red">'+u.sat+'</td><td class="green">'+u.bAl+'</td><td class="red">'+u.bSat+'</td><td>'+f+'</td><td style="color:#475569;font-size:0.75rem">'+tSince(u.son)+'</td></tr>';});th+='</tbody></table>';document.getElementById('uyumsuzBody').innerHTML=th;}
+  else{
+    var th='<table class="uyumsuz-table"><thead><tr><th>Musteri</th><th>Hisse</th><th>Olan</th><th>Olmasi Gereken</th><th>Son</th></tr></thead><tbody>';
+    uys.forEach(function(u){
+      u.farklar.forEach(function(f,idx){
+        var olanCls=f.gercek==='AL'?'green':f.gercek==='SAT'?'red':'gray';
+        var beklenenCls=f.beklenen==='AL'?'green':f.beklenen==='SAT'?'red':'gray';
+        th+='<tr><td>'+(idx===0?'<span class="dot dot-amber"></span>'+u.isim+'<br><small style="color:#475569">#'+u.hesap+'</small>':'')+'</td>';
+        th+='<td style="font-weight:600">'+f.hisse+'</td>';
+        th+='<td class="'+olanCls+'">'+f.gercek+'</td>';
+        th+='<td class="'+beklenenCls+'">'+f.beklenen+'</td>';
+        th+='<td style="color:#475569;font-size:0.75rem">'+(idx===0?tSince(u.son):'')+'</td></tr>';
+      });
+    });
+    th+='</tbody></table>';
+    document.getElementById('uyumsuzBody').innerHTML=th;
+  }
   if(sinyalData.length){var dh='<table class="uyumsuz-table"><thead><tr><th>Hisse</th><th>Yon</th><th>Skor</th><th>SMA</th><th>Bar</th><th>Guncelleme</th><th>Durum</th></tr></thead><tbody>';sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);var bay=isBayat(s.updated_at);dh+='<tr><td style="font-weight:600">'+s.hisse+'</td><td><span class="dot '+dotCls(sb)+'"></span><span class="'+yonCls(sb)+'">'+yonStr(sb)+'</span></td><td>'+(parseFloat(s.skor)||0).toFixed(1)+'</td><td>'+(s.sma_ustunde?'<span class="green">Ust</span>':'<span class="red">Alt</span>')+'</td><td style="color:#94a3b8;font-size:0.78rem">'+(s.bar_time||'-')+'</td><td style="color:#475569;font-size:0.75rem">'+tSince(s.updated_at)+' once</td><td>'+(bay?'<span class="pulse" style="color:#ef4444">Bayat</span>':'<span style="color:#22c55e">Taze</span>')+'</td></tr>';});dh+='</tbody></table>';document.getElementById('detayBody').innerHTML=dh;}
 }
 loadAll();setInterval(loadAll,15000);
