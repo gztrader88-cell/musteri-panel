@@ -2649,7 +2649,7 @@ app.get('/api/sinyal', async (req, res) => {
 // Sinyal + musteri pozisyon karsilastirmasi
 app.get('/api/sinyal-durum', async (req, res) => {
   try {
-    const sinyalResult = await pool.query('SELECT id, hisse, bar_time, side_buy, skor, sma_ustunde, sma_altinda, updated_at FROM sinyaller ORDER BY hisse');
+    const sinyalResult = await pool.query('SELECT id, hisse, bar_time, side_buy, skor::text, sma_ustunde, sma_altinda, updated_at FROM sinyaller ORDER BY updated_at DESC');
     const musteriResult = await pool.query(`SELECT m.hesap_no, m.isim, m.al_pozisyon, m.sat_pozisyon, m.nakit_pozisyon, m.son_guncelleme, k.aktif FROM musteriler m LEFT JOIN musteri_kayit k ON m.hesap_no = k.hesap_no ORDER BY m.isim`);
     res.json({ sinyaller: sinyalResult.rows, musteriler: musteriResult.rows });
   } catch (err) { res.status(500).json({ error: err.message }); }
