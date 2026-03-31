@@ -144,6 +144,7 @@ async function initDB() {
         skor DECIMAL(10,2) DEFAULT 0,
         sma_ustunde BOOLEAN DEFAULT true,
         sma_altinda BOOLEAN DEFAULT false,
+        override_mode VARCHAR(10) DEFAULT 'TV',
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
@@ -161,6 +162,9 @@ async function initDB() {
     `);
 
     console.log('Tablolar hazir (sinyaller + pozisyon detay dahil)');
+    
+    // override_mode kolonu yoksa ekle
+    await pool.query(`ALTER TABLE sinyaller ADD COLUMN IF NOT EXISTS override_mode VARCHAR(10) DEFAULT 'TV'`).catch(() => {});
 
     const check = await pool.query('SELECT COUNT(*) FROM musteri_kayit');
     if (parseInt(check.rows[0].count) === 0) {
@@ -2654,15 +2658,31 @@ app.get('/api/sinyal', async (req, res) => {
     const result = await pool.query('SELECT * FROM sinyaller WHERE hisse = $1', [hisse.toUpperCase()]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'sinyal bulunamadi', hisse });
     const row = result.rows[0];
-    res.json({ hisse: row.hisse, barTime: row.bar_time, sideBuy: row.side_buy, skor: parseFloat(row.skor), smaUstunde: row.sma_ustunde, smaAltinda: row.sma_altinda, updatedAt: row.updated_at });
+    // override_mode: TV=TradingView sinyali, AL=1, SAT=-1, NAKIT=0
+    let effectiveSideBuy = row.side_buy;
+    if (row.override_mode === 'AL') effectiveSideBuy = 1;
+    else if (row.override_mode === 'SAT') effectiveSideBuy = -1;
+    else if (row.override_mode === 'NAKIT') effectiveSideBuy = 0;
+    res.json({ hisse: row.hisse, barTime: row.bar_time, sideBuy: effectiveSideBuy, skor: parseFloat(row.skor), smaUstunde: row.sma_ustunde, smaAltinda: row.sma_altinda, updatedAt: row.updated_at, overrideMode: row.override_mode });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Sinyal + musteri pozisyon karsilastirmasi
+// === MANUEL OVERRIDE ===
+app.post('/api/sinyal-override', async (req, res) => {
+  try {
+    const { hisse, mode } = req.body;
+    if (!hisse || !['TV','AL','SAT','NAKIT'].includes(mode)) return res.status(400).json({ error: 'hisse ve mode (TV/AL/SAT/NAKIT) gerekli' });
+    await pool.query('UPDATE sinyaller SET override_mode = $1 WHERE hisse = $2', [mode, hisse.toUpperCase()]);
+    console.log('Override:', hisse, '->', mode);
+    res.json({ ok: true, hisse: hisse.toUpperCase(), mode });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/sinyal-durum', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   try {
-    const sinyalResult = await pool.query('SELECT id, hisse, bar_time, side_buy, skor::text, sma_ustunde, sma_altinda, updated_at FROM sinyaller ORDER BY hisse');
+    const sinyalResult = await pool.query('SELECT id, hisse, bar_time, side_buy, skor::text, sma_ustunde, sma_altinda, override_mode, updated_at FROM sinyaller ORDER BY hisse');
     const musteriResult = await pool.query(`SELECT m.hesap_no, m.isim, m.al_pozisyon, m.sat_pozisyon, m.nakit_pozisyon, m.son_guncelleme, k.aktif FROM musteriler m LEFT JOIN musteri_kayit k ON m.hesap_no = k.hesap_no ORDER BY m.isim`);
     const pozDetayResult = await pool.query('SELECT hesap_no, hisse, yon, updated_at FROM musteri_pozisyonlar ORDER BY hesap_no, hisse');
     res.json({ sinyaller: sinyalResult.rows, musteriler: musteriResult.rows, pozisyon_detay: pozDetayResult.rows });
@@ -2800,6 +2820,10 @@ function getSinyallerPage() {
   </div>
 <script>
 var sinyalData=[],musteriData=[],pozDetayData=[];
+async function setOverride(el){
+  var hisse=el.getAttribute('data-hisse');var mode=el.value;
+  try{await fetch('/api/sinyal-override',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hisse:hisse,mode:mode})});loadAll();}catch(e){console.error(e);}
+}
 function yonStr(s){return s==1?'AL':s==-1?'SAT':'NAKIT';}
 function yonCls(s){return s==1?'green':s==-1?'red':'gray';}
 function dotCls(s){return s==1?'dot-green':s==-1?'dot-red':'dot-gray';}
@@ -2818,18 +2842,18 @@ async function loadAll(){
   try{var r=await fetch('/api/sinyal-durum?t='+Date.now());var data=await r.json();sinyalData=data.sinyaller||[];musteriData=data.musteriler||[];pozDetayData=data.pozisyon_detay||[];render();document.getElementById('lastRefresh').textContent=new Date().toLocaleTimeString('tr-TR');}catch(e){console.error(e);}
 }
 function render(){
-  var al=0,sat=0,nak=0;sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);if(sb===1)al++;else if(sb===-1)sat++;else nak++;});
+  var al=0,sat=0,nak=0;sinyalData.forEach(function(s){var om=s.override_mode||'TV';var sb=om==='AL'?1:om==='SAT'?-1:om==='NAKIT'?0:parseInt(s.side_buy);if(sb===1)al++;else if(sb===-1)sat++;else nak++;});
   document.getElementById('sAl').textContent=al;document.getElementById('sSat').textContent=sat;document.getElementById('sNakit').textContent=nak;
   document.getElementById('sinyalBadge').textContent=sinyalData.length+' hisse';
   var gh='';
   if(!sinyalData.length){gh='<div class="empty-state" style="grid-column:1/-1">Henuz sinyal gelmedi. Test alani ile manuel gonderebilirsiniz.</div>';}
-  else{sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);var bay=isBayat(s.updated_at);gh+='<div class="sinyal-card"><div class="sinyal-hisse">'+s.hisse+'</div><div class="sinyal-yon '+yonCls(sb)+'">'+yonStr(sb)+'</div><div class="sinyal-skor">Skor: '+(parseFloat(s.skor)||0).toFixed(1)+'</div><div class="sinyal-time">'+(s.sma_ustunde?'SMA Ust':'SMA Alt')+'</div><div class="sinyal-time">Bar: '+(s.bar_time||'-')+(bay?' <span class="pulse" style="color:#ef4444">BAYAT</span>':'')+'</div><div class="sinyal-time">'+tSince(s.updated_at)+' once</div></div>';});}
+  else{sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);var bay=isBayat(s.updated_at);var om=s.override_mode||'TV';var effectiveSb=om==='AL'?1:om==='SAT'?-1:om==='NAKIT'?0:sb;var isOverride=om!=='TV';gh+='<div class="sinyal-card" style="position:relative'+(isOverride?';border:2px solid #f59e0b':'')+'"><div style="position:absolute;top:6px;right:6px"><select class="override-sel" data-hisse="'+s.hisse+'" onchange="setOverride(this)" style="background:#1e293b;color:'+(isOverride?'#f59e0b':'#64748b')+';border:1px solid '+(isOverride?'#f59e0b':'#334155')+';border-radius:4px;font-size:0.65rem;padding:2px 4px;cursor:pointer"><option value="TV"'+(om==='TV'?' selected':'')+'>TV</option><option value="AL"'+(om==='AL'?' selected':'')+'>AL</option><option value="SAT"'+(om==='SAT'?' selected':'')+'>SAT</option><option value="NAKIT"'+(om==='NAKIT'?' selected':'')+'>NAKIT</option></select></div><div class="sinyal-hisse">'+s.hisse+(isOverride?' ⚠️':'')+'</div><div class="sinyal-yon '+yonCls(effectiveSb)+'">'+yonStr(effectiveSb)+'</div><div class="sinyal-skor">Skor: '+(parseFloat(s.skor)||0).toFixed(1)+'</div><div class="sinyal-time">Bar: '+(s.bar_time||'-')+(bay?' <span class="pulse" style="color:#ef4444">BAYAT</span>':'')+'</div><div class="sinyal-time">'+tSince(s.updated_at)+' once</div>'+(isOverride?'<div class="sinyal-time" style="color:#f59e0b;font-weight:600">MANUEL: '+om+'</div>':'')+'</div>';});}
   document.getElementById('sinyalGrid').innerHTML=gh;
 
   // === HİSSE BAZLI UYUMSUZLUK KONTROLÜ ===
   // Sinyal haritası: {GARAN: "AL", THYAO: "NAKIT", ...}
   var sinyalMap={};
-  sinyalData.forEach(function(s){sinyalMap[s.hisse]=sinyalYon(s.side_buy);});
+  sinyalData.forEach(function(s){var om=s.override_mode||'TV';var sb=om==='AL'?1:om==='SAT'?-1:om==='NAKIT'?0:parseInt(s.side_buy);sinyalMap[s.hisse]=sinyalYon(sb);});
 
   // Müşteri pozisyon detay haritası: {hesap_no: {GARAN: "AL", THYAO: "NAKIT"}}
   var musteriPozMap={};
