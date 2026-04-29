@@ -161,7 +161,29 @@ async function initDB() {
       )
     `);
 
-    console.log('Tablolar hazir (sinyaller + pozisyon detay dahil)');
+    // === LOT SISTEMI ===
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lot_referans (
+        id SERIAL PRIMARY KEY,
+        hesap_no VARCHAR(50) UNIQUE,
+        baslangic_parasi DECIMAL(20,2),
+        baslangic_tarihi TIMESTAMP,
+        override BOOLEAN DEFAULT FALSE,
+        son_guncelleme TIMESTAMP DEFAULT NOW(),
+        son_guncelleyen VARCHAR(20) DEFAULT 'migration'
+      )
+    `);
+
+    // Mevcut musterilerden lot_referans'a otomatik aktarim (yoksa ekle)
+    await pool.query(`
+      INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, son_guncelleyen)
+      SELECT hesap_no, baslangic_parasi, '2026-03-28 00:00:00'::timestamp, 'migration'
+      FROM musteri_kayit
+      WHERE baslangic_parasi IS NOT NULL
+      ON CONFLICT (hesap_no) DO NOTHING
+    `);
+
+    console.log('Tablolar hazir (sinyaller + pozisyon detay + lot_referans dahil)');
     
     // override_mode kolonu yoksa ekle
     await pool.query(`ALTER TABLE sinyaller ADD COLUMN IF NOT EXISTS override_mode VARCHAR(10) DEFAULT 'TV'`).catch(() => {});
@@ -628,6 +650,14 @@ app.post('/api/kayit', async (req, res) => {
       'INSERT INTO musteri_kayit (hesap_no, baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, rdp_ip, rdp_kullanici, rdp_sifre) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
       [hesap_no, baslangic_parasi, hakedis_miktari || baslangic_parasi, komisyon_orani, para_birimi || 'TL', es_dost || false, rdp_ip||null, rdp_kullanici||null, rdp_sifre||null]
     );
+    // Lot referans tablosuna da otomatik ekle
+    try {
+      await pool.query(
+        `INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, son_guncelleyen)
+         VALUES ($1, $2, NOW(), 'kayit_eklendi') ON CONFLICT (hesap_no) DO NOTHING`,
+        [hesap_no, baslangic_parasi]
+      );
+    } catch(e) { console.log('Lot referans insert error:', e.message); }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -857,6 +887,7 @@ app.delete('/api/musteri/:hesapNo', async (req, res) => {
     await pool.query('DELETE FROM para_hareketleri WHERE hesap_no = $1', [hesapNo]);
     await pool.query('DELETE FROM kopukluk_bildirimleri WHERE hesap_no = $1', [hesapNo]);
     await pool.query('DELETE FROM grafik_uyarilari WHERE hesap_no = $1', [hesapNo]);
+    await pool.query('DELETE FROM lot_referans WHERE hesap_no = $1', [hesapNo]);
     
     console.log('Musteri silindi ve ayrilanlar tablosuna eklendi:', hesapNo);
     res.json({ ok: true });
@@ -1013,6 +1044,101 @@ app.get('/api/robot-gunluk', async (req, res) => {
 app.get('/robot-detay', robotAuth, (req, res) => { res.send(getRobotDetayPage()); });
 
 // =====================================================
+// LOT SISTEMI API
+// =====================================================
+
+// Robot lot okur (GET) — saatte bir veya OnInit'te
+app.get('/api/lot', async (req, res) => {
+  try {
+    const { hesap_no } = req.query;
+    if (!hesap_no) return res.status(400).json({ error: 'hesap_no zorunlu' });
+    const result = await pool.query('SELECT * FROM lot_referans WHERE hesap_no = $1', [hesap_no]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'kayit yok', hesap_no });
+    const r = result.rows[0];
+    res.json({
+      hesap_no: r.hesap_no,
+      baslangic_parasi: parseFloat(r.baslangic_parasi),
+      baslangic_tarihi: r.baslangic_tarihi,
+      override: r.override,
+      son_guncelleme: r.son_guncelleme
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Robot vade tasimada lot yazar (POST) — sadece override=false ise yazar
+app.post('/api/lot', async (req, res) => {
+  try {
+    const { hesap_no, baslangic_parasi, baslangic_tarihi } = req.body;
+    if (!hesap_no || !baslangic_parasi) return res.status(400).json({ error: 'eksik veri' });
+
+    // Override aktifse robotun yazmasini reddet
+    const mevcut = await pool.query('SELECT override FROM lot_referans WHERE hesap_no = $1', [hesap_no]);
+    if (mevcut.rows.length > 0 && mevcut.rows[0].override) {
+      return res.json({ ok: false, reason: 'override aktif, robot yazamaz' });
+    }
+
+    const tarih = baslangic_tarihi || new Date().toISOString();
+    await pool.query(`
+      INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleme, son_guncelleyen)
+      VALUES ($1, $2, $3, FALSE, NOW(), 'robot')
+      ON CONFLICT (hesap_no) DO UPDATE SET
+        baslangic_parasi = $2, baslangic_tarihi = $3, son_guncelleme = NOW(), son_guncelleyen = 'robot'
+      WHERE lot_referans.override = FALSE
+    `, [hesap_no, baslangic_parasi, tarih]);
+
+    console.log('Lot guncellendi (robot):', hesap_no, baslangic_parasi);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sen panelden manuel guncelle — override aktif olur
+app.post('/api/lot-override', async (req, res) => {
+  try {
+    const { hesap_no, baslangic_parasi, baslangic_tarihi } = req.body;
+    if (!hesap_no || !baslangic_parasi) return res.status(400).json({ error: 'eksik veri' });
+
+    const tarih = baslangic_tarihi || new Date().toISOString();
+    await pool.query(`
+      INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleme, son_guncelleyen)
+      VALUES ($1, $2, $3, TRUE, NOW(), 'manuel')
+      ON CONFLICT (hesap_no) DO UPDATE SET
+        baslangic_parasi = $2, baslangic_tarihi = $3, override = TRUE, son_guncelleme = NOW(), son_guncelleyen = 'manuel'
+    `, [hesap_no, baslangic_parasi, tarih]);
+
+    console.log('Lot guncellendi (manuel):', hesap_no, baslangic_parasi);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Override kaldir — robot tekrar otomatik yazabilir
+app.post('/api/lot-reset', async (req, res) => {
+  try {
+    const { hesap_no } = req.body;
+    if (!hesap_no) return res.status(400).json({ error: 'hesap_no zorunlu' });
+    await pool.query('UPDATE lot_referans SET override = FALSE, son_guncelleyen = $1 WHERE hesap_no = $2', ['reset', hesap_no]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Tum lot kayitlarini listele (panel sayfasi icin)
+app.get('/api/lot-list', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT lr.*, m.isim, m.varlik, mk.aktif
+      FROM lot_referans lr
+      LEFT JOIN musteriler m ON lr.hesap_no = m.hesap_no
+      LEFT JOIN musteri_kayit mk ON lr.hesap_no = mk.hesap_no
+      WHERE mk.aktif IS NULL OR mk.aktif = TRUE
+      ORDER BY m.isim NULLS LAST, lr.hesap_no
+    `);
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Lot Sistemi sayfasi
+app.get('/lot-sistemi', robotAuth, (req, res) => { res.send(getLotSistemiPage()); });
+
+// =====================================================
 // ANA SAYFA
 // =====================================================
 function getMainPage() {
@@ -1091,7 +1217,7 @@ function getMainPage() {
     <h1>Musteri Takip Paneli</h1>
     <div class="market-status" id="marketStatus">Piyasa durumu yukleniyor...</div>
     <div class="header-btns">
-      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><a href="/sinyaller" class="header-btn">📡 Sinyaller</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative;font-family:inherit">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;align-items:center;justify-content:center;font-weight:bold">0</span></button>
+      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><a href="/sinyaller" class="header-btn">📡 Sinyaller</a><a href="/lot-sistemi" class="header-btn">📊 Lot</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative;font-family:inherit">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;align-items:center;justify-content:center;font-weight:bold">0</span></button>
       <a href="/api/export" class="header-btn">📥 Excel</a>
       <button class="header-btn" onclick="showSettings()">⚙️</button>
     </div>
@@ -2902,6 +3028,224 @@ function render(){
   if(sinyalData.length){var dh='<table class="uyumsuz-table"><thead><tr><th>Hisse</th><th>Yon</th><th>Skor</th><th>SMA</th><th>Bar</th><th>Guncelleme</th><th>Durum</th></tr></thead><tbody>';sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);var bay=isBayat(s.updated_at);dh+='<tr><td style="font-weight:600">'+s.hisse+'</td><td><span class="dot '+dotCls(sb)+'"></span><span class="'+yonCls(sb)+'">'+yonStr(sb)+'</span></td><td>'+(parseFloat(s.skor)||0).toFixed(1)+'</td><td>'+(s.sma_ustunde?'<span class="green">Ust</span>':'<span class="red">Alt</span>')+'</td><td style="color:#94a3b8;font-size:0.78rem">'+(s.bar_time||'-')+'</td><td style="color:#475569;font-size:0.75rem">'+tSince(s.updated_at)+' once</td><td>'+(bay?'<span class="pulse" style="color:#ef4444">Bayat</span>':'<span style="color:#22c55e">Taze</span>')+'</td></tr>';});dh+='</tbody></table>';document.getElementById('detayBody').innerHTML=dh;}
 }
 loadAll();setInterval(loadAll,15000);
+</script>
+</body>
+</html>`;
+}
+
+// =====================================================
+// LOT SISTEMI SAYFASI
+// =====================================================
+function getLotSistemiPage() {
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Lot Sistemi</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0e1a;color:#c8ccd4;font-size:14px}
+.header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid #1e293b;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.header h1{font-size:1.05rem;font-weight:600;color:#e2e8f0}
+.hbtn{background:rgba(255,255,255,0.08);color:#94a3b8;border:1px solid #334155;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem;text-decoration:none;display:inline-block}
+.hbtn:hover{background:rgba(255,255,255,0.12);color:#e2e8f0}
+.container{max-width:1280px;margin:0 auto;padding:16px}
+.info-box{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:0.78rem;line-height:1.7;color:#94a3b8}
+.info-box strong{color:#e2e8f0}
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stat-box{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:14px;text-align:center}
+.stat-val{font-size:1.4rem;font-weight:700}
+.stat-lbl{font-size:0.65rem;color:#64748b;margin-top:3px;text-transform:uppercase}
+.green{color:#22c55e}.red{color:#ef4444}.amber{color:#f59e0b}.blue{color:#3b82f6}
+.table-wrap{background:#111827;border:1px solid #1e293b;border-radius:10px;overflow:auto}
+table{width:100%;border-collapse:collapse}
+th{padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;font-weight:600;border-bottom:1px solid #1e293b;text-transform:uppercase;white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid rgba(30,41,59,0.5);font-size:0.82rem}
+tr:hover{background:rgba(255,255,255,0.02)}
+.override-row{background:rgba(245,158,11,0.04)}
+.search-bar{margin-bottom:12px}
+.search-bar input{width:100%;padding:9px 14px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;font-size:0.85rem;outline:none}
+.search-bar input:focus{border-color:#3b82f6}
+.action-btn{background:#3b82f6;color:#fff;border:none;padding:5px 10px;border-radius:5px;cursor:pointer;font-size:0.72rem;margin-right:4px}
+.action-btn:hover{background:#2563eb}
+.action-btn.warn{background:#f59e0b}
+.action-btn.warn:hover{background:#d97706}
+.action-btn.gray{background:#475569}
+.action-btn.gray:hover{background:#334155}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center}
+.modal.show{display:flex}
+.modal-box{background:#0f172a;border:1px solid #334155;border-radius:12px;padding:24px;max-width:440px;width:92%}
+.modal-box h3{font-size:1rem;font-weight:600;color:#e2e8f0;margin-bottom:14px}
+.modal-box label{display:block;font-size:0.75rem;color:#64748b;margin-bottom:4px;margin-top:10px}
+.modal-box input{width:100%;padding:9px 12px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;font-size:0.85rem;outline:none}
+.modal-box input:focus{border-color:#3b82f6}
+.modal-actions{display:flex;gap:8px;margin-top:18px}
+.modal-actions button{flex:1;padding:9px;border:none;border-radius:6px;cursor:pointer;font-size:0.82rem;font-weight:600}
+.btn-save{background:#3b82f6;color:#fff}
+.btn-cancel{background:#475569;color:#fff}
+.badge-mod{display:inline-block;padding:3px 9px;border-radius:10px;font-size:0.68rem;font-weight:600}
+.badge-otomatik{background:rgba(34,197,94,0.15);color:#22c55e}
+.badge-manuel{background:rgba(245,158,11,0.2);color:#f59e0b}
+@media (max-width:768px){.stats-row{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📊 Lot Sistemi</h1>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/" class="hbtn">🏠 Ana Sayfa</a>
+    <a href="/musteriler" class="hbtn">👥 Müşteriler</a>
+    <a href="/sinyaller" class="hbtn">📡 Sinyaller</a>
+    <a href="/robot" class="hbtn">📈 Robot</a>
+  </div>
+</div>
+<div class="container">
+  <div class="info-box">
+    <strong>Bilgi:</strong> Robot her saatte bir bu sayfayı kontrol eder ve değişiklikleri okur. <strong style="color:#22c55e">OTOMATİK:</strong> Robot vade taşımada AccountEquity'yi otomatik yazar. <strong style="color:#f59e0b">MANUEL:</strong> Sen değiştirdin, robot bir sonraki vade taşımaya kadar bu değeri kullanır. Vade taşımada otomatik moda geri döner.
+  </div>
+  <div class="stats-row">
+    <div class="stat-box"><div class="stat-val blue" id="sToplam">-</div><div class="stat-lbl">Toplam Müşteri</div></div>
+    <div class="stat-box"><div class="stat-val green" id="sOtomatik">-</div><div class="stat-lbl">Otomatik Mod</div></div>
+    <div class="stat-box"><div class="stat-val amber" id="sManuel">-</div><div class="stat-lbl">Manuel Override</div></div>
+    <div class="stat-box"><div class="stat-val" style="color:#94a3b8" id="sToplamPara">-</div><div class="stat-lbl">Toplam Referans (TL)</div></div>
+  </div>
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="İsim veya hesap no ara..." oninput="render()">
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Müşteri</th>
+        <th>Başlangıç Parası</th>
+        <th>Başlangıç Tarihi</th>
+        <th>Mod</th>
+        <th>Son Güncelleme</th>
+        <th>Kim Yazdı</th>
+        <th>İşlem</th>
+      </tr></thead>
+      <tbody id="tbody"><tr><td colspan="7" style="text-align:center;padding:30px;color:#475569">Yükleniyor...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal" id="editModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <h3 id="modalTitle">Manuel Düzenle</h3>
+    <input type="hidden" id="editHesapNo">
+    <label>Başlangıç Parası (TL)</label>
+    <input type="number" id="editPara" step="0.01">
+    <label>Başlangıç Tarihi</label>
+    <input type="datetime-local" id="editTarih">
+    <div class="modal-actions">
+      <button class="btn-save" onclick="kaydet()">💾 Manuel Kaydet</button>
+      <button class="btn-cancel" onclick="closeModal()">İptal</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var data=[];
+function fmt(n){return new Intl.NumberFormat('tr-TR').format(Math.round(parseFloat(n)||0));}
+function fmtDate(d){if(!d)return'-';var dt=new Date(d);return dt.toLocaleString('tr-TR');}
+function tSince(dt){if(!dt)return'-';var d=Math.round((Date.now()-new Date(dt).getTime())/1000);if(d<60)return d+' sn';if(d<3600)return Math.floor(d/60)+' dk';if(d<86400)return Math.floor(d/3600)+' saat';return Math.floor(d/86400)+' gün';}
+
+async function load(){
+  try{
+    var r=await fetch('/api/lot-list');
+    data=await r.json();
+    render();
+  }catch(e){console.error(e);}
+}
+
+function render(){
+  var q=(document.getElementById('searchInput').value||'').toLowerCase();
+  var filtered=q?data.filter(function(d){return (d.isim||'').toLowerCase().includes(q)||(d.hesap_no||'').toString().includes(q);}):data;
+  
+  var otomatik=data.filter(function(d){return !d.override;}).length;
+  var manuel=data.filter(function(d){return d.override;}).length;
+  var toplamPara=data.reduce(function(s,d){return s+(parseFloat(d.baslangic_parasi)||0);},0);
+  
+  document.getElementById('sToplam').textContent=data.length;
+  document.getElementById('sOtomatik').textContent=otomatik;
+  document.getElementById('sManuel').textContent=manuel;
+  document.getElementById('sToplamPara').textContent=fmt(toplamPara);
+  
+  if(filtered.length===0){
+    document.getElementById('tbody').innerHTML='<tr><td colspan="7" style="text-align:center;padding:30px;color:#475569">Sonuç bulunamadı</td></tr>';
+    return;
+  }
+  
+  var html='';
+  filtered.forEach(function(d){
+    var rowCls=d.override?'override-row':'';
+    var modBadge=d.override
+      ?'<span class="badge-mod badge-manuel">⚠️ MANUEL</span>'
+      :'<span class="badge-mod badge-otomatik">OTOMATİK</span>';
+    var resetBtn=d.override?'<button class="action-btn gray" onclick="resetOverride(\\''+d.hesap_no+'\\')">↺ Otomatiğe Al</button>':'';
+    var isim=(d.isim||('#'+d.hesap_no));
+    
+    html+='<tr class="'+rowCls+'">';
+    html+='<td><strong style="color:#e2e8f0">'+isim+'</strong><br><small style="color:#475569">#'+d.hesap_no+'</small></td>';
+    html+='<td><strong style="color:#e2e8f0">'+fmt(d.baslangic_parasi)+'</strong> <span style="color:#64748b;font-size:0.7rem">TL</span></td>';
+    html+='<td style="color:#94a3b8">'+fmtDate(d.baslangic_tarihi)+'</td>';
+    html+='<td>'+modBadge+'</td>';
+    html+='<td style="color:#64748b;font-size:0.75rem">'+tSince(d.son_guncelleme)+' önce</td>';
+    html+='<td style="color:#64748b;font-size:0.75rem">'+(d.son_guncelleyen||'-')+'</td>';
+    html+='<td><button class="action-btn warn" onclick="duzenle(\\''+d.hesap_no+'\\')">✏️ Düzenle</button>'+resetBtn+'</td>';
+    html+='</tr>';
+  });
+  document.getElementById('tbody').innerHTML=html;
+}
+
+function duzenle(hesap_no){
+  var d=data.find(function(x){return x.hesap_no===hesap_no;});
+  if(!d)return;
+  document.getElementById('editHesapNo').value=hesap_no;
+  document.getElementById('modalTitle').textContent='Düzenle: '+(d.isim||'#'+hesap_no);
+  document.getElementById('editPara').value=parseFloat(d.baslangic_parasi)||0;
+  var dt=d.baslangic_tarihi?new Date(d.baslangic_tarihi):new Date();
+  var iso=new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('editTarih').value=iso;
+  document.getElementById('editModal').classList.add('show');
+}
+
+function closeModal(){document.getElementById('editModal').classList.remove('show');}
+
+async function kaydet(){
+  var hesap_no=document.getElementById('editHesapNo').value;
+  var para=parseFloat(document.getElementById('editPara').value);
+  var tarih=document.getElementById('editTarih').value;
+  if(!para||para<=0){alert('Geçerli para girin');return;}
+  
+  if(!confirm('Bu müşterinin başlangıç parasını '+fmt(para)+' TL olarak MANUEL ayarlamak istediğine emin misin?\\n\\nMod MANUEL olacak. Bir sonraki vade taşımasında otomatiğe dönmez — sen "Otomatiğe Al" butonuna basana kadar bu değer kullanılır.'))return;
+  
+  try{
+    var r=await fetch('/api/lot-override',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({hesap_no:hesap_no,baslangic_parasi:para,baslangic_tarihi:tarih})
+    });
+    var d=await r.json();
+    if(d.ok){closeModal();load();}else{alert('Hata: '+(d.error||'bilinmeyen'));}
+  }catch(e){alert('Bağlantı hatası');}
+}
+
+async function resetOverride(hesap_no){
+  if(!confirm('Bu müşterinin manuel ayarını kaldırmak istediğine emin misin?\\n\\nBir sonraki vade taşımasında robot otomatik güncelleyecek.'))return;
+  try{
+    var r=await fetch('/api/lot-reset',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({hesap_no:hesap_no})
+    });
+    var d=await r.json();
+    if(d.ok)load();else alert('Hata');
+  }catch(e){alert('Bağlantı hatası');}
+}
+
+load();
+setInterval(load,30000);
 </script>
 </body>
 </html>`;
