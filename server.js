@@ -1200,6 +1200,55 @@ app.get('/api/lot-migration-fix', async (req, res) => {
 app.get('/lot-sistemi', robotAuth, (req, res) => { res.send(getLotSistemiPage()); });
 
 // =====================================================
+// LOT MIGRATION 2 - Eksik 11 hesabi INSERT et (TEK SEFERLIK)
+// =====================================================
+app.get('/api/lot-migration-insert', async (req, res) => {
+  const eksikMusteriler = {
+    '7197904': 1523311,
+    '7220690': 343779,
+    '7221998': 353130,
+    '7231831': 637862,
+    '7231837': 470000,
+    '7236029': 238340,
+    '7236065': 367809,
+    '7236134': 304809,
+    '7237833': 261057,
+    '7239339': 254579,
+    '7241368': 375996
+  };
+
+  let inserted = 0, alreadyExists = 0;
+  const log = [];
+
+  try {
+    for (const [hesap_no, deger] of Object.entries(eksikMusteriler)) {
+      const mevcut = await pool.query('SELECT id FROM lot_referans WHERE hesap_no = $1', [hesap_no]);
+
+      if (mevcut.rows.length > 0) {
+        alreadyExists++;
+        log.push(`ZATEN VAR: ${hesap_no} (atlandi)`);
+      } else {
+        await pool.query(
+          `INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleyen)
+           VALUES ($1, $2, '2026-03-28 00:00:00'::timestamp, FALSE, 'robot_kodu_migration')`,
+          [hesap_no, deger]
+        );
+        inserted++;
+        log.push(`INSERT: ${hesap_no} = ${deger}`);
+      }
+    }
+
+    res.json({
+      ok: true,
+      ozet: { toplam: Object.keys(eksikMusteriler).length, inserted, alreadyExists },
+      detay: log
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, log });
+  }
+});
+
+// =====================================================
 // ANA SAYFA
 // =====================================================
 function getMainPage() {
