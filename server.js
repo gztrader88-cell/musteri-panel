@@ -1174,7 +1174,7 @@ app.get('/api/lot-toplu-guncelle', async (req, res) => {
       if (mevcut.rows.length === 0) {
         await pool.query(
           `INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleyen)
-           VALUES ($1, $2, $3, TRUE, 'toplu_guncelleme_30_04')`,
+           VALUES ($1, $2, $3, TRUE, 'toplu_30_04')`,
           [hesap_no, deger, simdi]
         );
         inserted++;
@@ -1183,7 +1183,7 @@ app.get('/api/lot-toplu-guncelle', async (req, res) => {
         const eski = parseFloat(mevcut.rows[0].baslangic_parasi) || 0;
         await pool.query(
           `UPDATE lot_referans SET baslangic_parasi = $1, baslangic_tarihi = $2, override = TRUE,
-                  son_guncelleme = NOW(), son_guncelleyen = 'toplu_guncelleme_30_04'
+                  son_guncelleme = NOW(), son_guncelleyen = 'toplu_30_04'
            WHERE hesap_no = $3`,
           [deger, simdi, hesap_no]
         );
