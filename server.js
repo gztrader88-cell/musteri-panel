@@ -1139,6 +1139,28 @@ app.get('/api/lot-list', async (req, res) => {
 app.get('/lot-sistemi', robotAuth, (req, res) => { res.send(getLotSistemiPage()); });
 
 // =====================================================
+// TUM OVERRIDE'LARI KALDIR (TEK SEFERLIK)
+// Mevcut baslangic_parasi degerlerini KORURUR, sadece override=FALSE yapar
+// =====================================================
+app.get('/api/lot-toplu-otomatige-al', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      UPDATE lot_referans 
+      SET override = FALSE, son_guncelleyen = 'reset_toplu', son_guncelleme = NOW()
+      WHERE override = TRUE
+      RETURNING hesap_no, baslangic_parasi
+    `);
+    res.json({ 
+      ok: true, 
+      ozet: { otomatige_alindi: result.rowCount },
+      detay: result.rows.map(r => `${r.hesap_no}: ${r.baslangic_parasi} TL (otomatik mod)`)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =====================================================
 // LOT TOPLU GUNCELLEME (TEK SEFERLIK - 30.04 vade taşıma sonrası
 // guncel AccountEquity degerlerini panele yazar - MANUEL MODE)
 // =====================================================
