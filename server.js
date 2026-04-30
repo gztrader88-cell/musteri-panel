@@ -1161,6 +1161,63 @@ app.get('/api/lot-toplu-otomatige-al', async (req, res) => {
 });
 
 // =====================================================
+// TUM BASLANGIC TARIHLERINI BUGUNE AL (TEK SEFERLIK)
+// Vade tasimadan sonra equity guncellendiginde tarih de bugun olmali
+// =====================================================
+app.get('/api/lot-toplu-tarih-bugun', async (req, res) => {
+  try {
+    const simdi = new Date().toISOString();
+    const result = await pool.query(`
+      UPDATE lot_referans 
+      SET baslangic_tarihi = $1, son_guncelleme = NOW(), son_guncelleyen = 'tarih_reset'
+      RETURNING hesap_no, baslangic_parasi, baslangic_tarihi
+    `, [simdi]);
+    res.json({ 
+      ok: true, 
+      ozet: { guncellenen: result.rowCount, yeni_tarih: simdi },
+      detay: result.rows.map(r => `${r.hesap_no}: tarih -> ${r.baslangic_tarihi}`)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =====================================================
+// PORTFOYDEN CIKARILAN HISSELERI TEMIZLE
+// 7 hisseli yeni portfoy: AKBNK, GARAN, YKBNK, ISCTR, EKGYO, THYAO, EREGL
+// Eski hisseler (KCHOL, ASELS, PETKM) sinyaller ve pozisyonlardan silinir
+// =====================================================
+app.get('/api/eski-hisseleri-temizle', async (req, res) => {
+  try {
+    const aktifHisseler = ['AKBNK', 'GARAN', 'YKBNK', 'ISCTR', 'EKGYO', 'THYAO', 'EREGL'];
+    
+    // Sinyaller tablosundan eski hisseleri sil
+    const sinyalSil = await pool.query(
+      `DELETE FROM sinyaller WHERE hisse NOT IN ($1, $2, $3, $4, $5, $6, $7) RETURNING hisse`,
+      aktifHisseler
+    );
+    
+    // Musteri pozisyonlarindan eski hisseleri sil
+    const pozSil = await pool.query(
+      `DELETE FROM musteri_pozisyonlar WHERE hisse NOT IN ($1, $2, $3, $4, $5, $6, $7) RETURNING hisse`,
+      aktifHisseler
+    );
+    
+    res.json({
+      ok: true,
+      ozet: {
+        sinyaller_silindi: sinyalSil.rowCount,
+        pozisyonlar_silindi: pozSil.rowCount
+      },
+      silinen_hisseler_sinyaller: sinyalSil.rows.map(r => r.hisse),
+      silinen_pozisyon_kayit_sayisi: pozSil.rowCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =====================================================
 // LOT TOPLU GUNCELLEME (TEK SEFERLIK - 30.04 vade taşıma sonrası
 // guncel AccountEquity degerlerini panele yazar - MANUEL MODE)
 // =====================================================
