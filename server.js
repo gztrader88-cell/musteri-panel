@@ -1138,6 +1138,70 @@ app.get('/api/lot-list', async (req, res) => {
 // Lot Sistemi sayfasi
 app.get('/lot-sistemi', robotAuth, (req, res) => { res.send(getLotSistemiPage()); });
 
+// =====================================================
+// LOT TOPLU GUNCELLEME (TEK SEFERLIK - 30.04 vade taşıma sonrası
+// guncel AccountEquity degerlerini panele yazar - MANUEL MODE)
+// =====================================================
+app.get('/api/lot-toplu-guncelle', async (req, res) => {
+  const guncelDegerler = {
+    '53665':    246290,  '7197832':  447752,  '7203341':  1551986, '7220548':  907760,
+    '7198743':  997158,  '7220676':  991458,  '7189653':  568321,  '7197811':  295591,
+    '7196328':  303847,  '7211932':  252480,  '7231995':  376814,  '7227709':  323410,
+    '7220695':  317253,  '7222015':  470524,  '7230772':  967559,  '7220666':  438549,
+    '7227601':  394594,  '7232402':  1636653, '7232074':  374643,  '7235405':  391144,
+    '7236189':  120566,  '53659':    211292,  '7149847':  272846,  '7229339':  275164,
+    '7234237':  225708,  '7152100':  330497,  '7237612':  237807,  '7237528':  513777,
+    '53683':    227512,  '53701':    231649,  '7237217':  210651,  '7237754':  523111,
+    '7236469':  219005,  '7192610':  301562,  '7237934':  227703,  '7240908':  222852,
+    '7240771':  964183,  '7236798':  232101,  '7238958':  207336,  '7236167':  208774,
+    '53662':    256107,  '7239024':  243704,  '7238855':  379628,  '7243619':  868506,
+    '53618':    208577,  '7242011':  222439,  '7243582':  368003,  '7243488':  453276,
+    '7237486':  261891,  '7241996':  244367,  '7243614':  215420,  '7195843':  255375,
+    '53658':    332989,  '7149714':  410776,  '7189496':  275938,  '7236080':  194122,
+    '7247038':  414853,  '7237690':  200513,  '7244161':  202617,  '7245343':  214976,
+    '99303048': 1623395, '53718':    505710,  '53667':    217384,  '7167917':  219113,
+    '7231923':  851204,  '53669':    204936,  '7134170':  193429,  '7133687':  130856
+  };
+
+  let updated = 0, inserted = 0;
+  const log = [];
+  const simdi = new Date().toISOString();
+
+  try {
+    for (const [hesap_no, deger] of Object.entries(guncelDegerler)) {
+      const mevcut = await pool.query('SELECT baslangic_parasi FROM lot_referans WHERE hesap_no = $1', [hesap_no]);
+
+      if (mevcut.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleyen)
+           VALUES ($1, $2, $3, TRUE, 'toplu_guncelleme_30_04')`,
+          [hesap_no, deger, simdi]
+        );
+        inserted++;
+        log.push(`INSERT: ${hesap_no} = ${deger}`);
+      } else {
+        const eski = parseFloat(mevcut.rows[0].baslangic_parasi) || 0;
+        await pool.query(
+          `UPDATE lot_referans SET baslangic_parasi = $1, baslangic_tarihi = $2, override = TRUE,
+                  son_guncelleme = NOW(), son_guncelleyen = 'toplu_guncelleme_30_04'
+           WHERE hesap_no = $3`,
+          [deger, simdi, hesap_no]
+        );
+        updated++;
+        log.push(`UPDATE: ${hesap_no}: ${eski} -> ${deger}`);
+      }
+    }
+
+    res.json({
+      ok: true,
+      ozet: { toplam: Object.keys(guncelDegerler).length, updated, inserted },
+      detay: log
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, log });
+  }
+});
+
 
 // =====================================================
 // ANA SAYFA
@@ -3095,6 +3159,7 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <div class="header">
   <h1>📊 Lot Sistemi</h1>
   <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="hbtn" onclick="yeniEkle()" style="background:#1d4ed8;color:#fff;border-color:#1d4ed8">➕ Yeni Ekle</button>
     <a href="/" class="hbtn">🏠 Ana Sayfa</a>
     <a href="/musteriler" class="hbtn">👥 Müşteriler</a>
     <a href="/sinyaller" class="hbtn">📡 Sinyaller</a>
@@ -3133,13 +3198,18 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <div class="modal" id="editModal" onclick="if(event.target===this)closeModal()">
   <div class="modal-box">
     <h3 id="modalTitle">Manuel Düzenle</h3>
+    <input type="hidden" id="editMode" value="edit">
+    <div id="hesapNoRow" style="display:none">
+      <label>Hesap Numarası</label>
+      <input type="text" id="editHesapNoInput" placeholder="7244161">
+    </div>
     <input type="hidden" id="editHesapNo">
     <label>Başlangıç Parası (TL)</label>
     <input type="number" id="editPara" step="0.01">
     <label>Başlangıç Tarihi</label>
     <input type="datetime-local" id="editTarih">
     <div class="modal-actions">
-      <button class="btn-save" onclick="kaydet()">💾 Manuel Kaydet</button>
+      <button class="btn-save" onclick="kaydet()">💾 Kaydet</button>
       <button class="btn-cancel" onclick="closeModal()">İptal</button>
     </div>
   </div>
@@ -3199,9 +3269,24 @@ function render(){
   document.getElementById('tbody').innerHTML=html;
 }
 
+function yeniEkle(){
+  document.getElementById('editMode').value='new';
+  document.getElementById('hesapNoRow').style.display='block';
+  document.getElementById('editHesapNoInput').value='';
+  document.getElementById('editHesapNo').value='';
+  document.getElementById('modalTitle').textContent='Yeni Lot Kaydı Ekle';
+  document.getElementById('editPara').value='';
+  var dt=new Date();
+  var iso=new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('editTarih').value=iso;
+  document.getElementById('editModal').classList.add('show');
+}
+
 function duzenle(hesap_no){
   var d=data.find(function(x){return x.hesap_no===hesap_no;});
   if(!d)return;
+  document.getElementById('editMode').value='edit';
+  document.getElementById('hesapNoRow').style.display='none';
   document.getElementById('editHesapNo').value=hesap_no;
   document.getElementById('modalTitle').textContent='Düzenle: '+(d.isim||'#'+hesap_no);
   document.getElementById('editPara').value=parseFloat(d.baslangic_parasi)||0;
@@ -3214,12 +3299,28 @@ function duzenle(hesap_no){
 function closeModal(){document.getElementById('editModal').classList.remove('show');}
 
 async function kaydet(){
-  var hesap_no=document.getElementById('editHesapNo').value;
+  var mode=document.getElementById('editMode').value;
+  var hesap_no;
+  if(mode==='new'){
+    hesap_no=document.getElementById('editHesapNoInput').value.trim();
+    if(!hesap_no){alert('Hesap numarası girin');return;}
+    // Mevcut listede zaten var mı
+    if(data.find(function(x){return x.hesap_no===hesap_no;})){
+      alert('Bu hesap numarası zaten kayıtlı. Düzenle butonunu kullan.');
+      return;
+    }
+  } else {
+    hesap_no=document.getElementById('editHesapNo').value;
+  }
   var para=parseFloat(document.getElementById('editPara').value);
   var tarih=document.getElementById('editTarih').value;
   if(!para||para<=0){alert('Geçerli para girin');return;}
   
-  if(!confirm('Bu müşterinin başlangıç parasını '+fmt(para)+' TL olarak MANUEL ayarlamak istediğine emin misin?\\n\\nMod MANUEL olacak. Bir sonraki vade taşımasında otomatiğe dönmez — sen "Otomatiğe Al" butonuna basana kadar bu değer kullanılır.'))return;
+  var mesaj=mode==='new'
+    ? 'Yeni lot kaydı oluşturulacak: #'+hesap_no+' = '+fmt(para)+' TL\\n\\nMod MANUEL olacak. Devam edilsin mi?'
+    : 'Bu müşterinin başlangıç parasını '+fmt(para)+' TL olarak MANUEL ayarlamak istediğine emin misin?\\n\\nMod MANUEL olacak. Bir sonraki vade taşımasında otomatiğe dönmez — sen "Otomatiğe Al" butonuna basana kadar bu değer kullanılır.';
+  
+  if(!confirm(mesaj))return;
   
   try{
     var r=await fetch('/api/lot-override',{
