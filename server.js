@@ -3292,17 +3292,3 @@ setInterval(load,30000);
 </html>`;
 }
 app.listen(PORT, () => console.log('Server port ' + PORT));
-r port ' + PORT));
-})
-    });
-    var d=await r.json();
-    if(d.ok)load();else alert('Hata');
-  }catch(e){alert('Bağlantı hatası');}
-}
-load();
-setInterval(load,30000);
-</script>
-</body>
-</html>`;
-}
-app.listen(PORT, () => console.log('Server port ' + PORT));
