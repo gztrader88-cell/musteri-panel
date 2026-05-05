@@ -1608,16 +1608,20 @@ function getMainPage() {
             if (!pMap[p.hesap_no]) pMap[p.hesap_no] = {};
             pMap[p.hesap_no][p.hisse] = p.yon;
           });
-          for (const hesap in pMap) {
+          // Sinyaller sayfasıyla birebir aynı mantık: sd.musteriler iterasyonu (pMap değil)
+          (sd.musteriler||[]).forEach(m => {
+            const hesap = m.hesap_no;
+            const pozlar = pMap[hesap];
+            if (!pozlar) return; // pozisyon detayı yoksa atla
             let mismatch = false;
             for (const h in sMap) {
-              if ((pMap[hesap][h]||'NAKIT') !== sMap[h]) { mismatch = true; break; }
+              if ((pozlar[h]||'NAKIT') !== sMap[h]) { mismatch = true; break; }
             }
             pozStatusMap[hesap] = mismatch
               ? '<span style="color:#dc2626;font-weight:bold">✗</span>'
               : '<span style="color:#16a34a;font-weight:bold">✓</span>';
             if (mismatch) sinyalUyumsuzCount++;
-          }
+          });
         } catch(e) {}
         const outliers=allData.filter(c=>Math.abs((parseFloat(c.bugun_yuzde)||0)-mean)>stdDev*2);
         const gelenIDs=allData.map(m=>m.hesap_no);
@@ -3276,6 +3280,20 @@ async function resetOverride(hesap_no){
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({hesap_no:hesap_no})
+    });
+    var d=await r.json();
+    if(d.ok)load();else alert('Hata');
+  }catch(e){alert('Bağlantı hatası');}
+}
+load();
+setInterval(load,30000);
+</script>
+</body>
+</html>`;
+}
+app.listen(PORT, () => console.log('Server port ' + PORT));
+r port ' + PORT));
+})
     });
     var d=await r.json();
     if(d.ok)load();else alert('Hata');
