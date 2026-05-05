@@ -1,11 +1,9 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-
 const app = express();
 app.use(cors());
 app.use(express.json());
-
 // Tum sayfa sifre kontrolu
 const ROBOT_SIFRE = process.env.ROBOT_SIFRE || 'robot2024';
 function robotAuth(req, res, next) {
@@ -19,15 +17,12 @@ function robotAuth(req, res, next) {
   }
   res.send(getRobotLoginPage());
 }
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
-
 const MARKET_START = 9.5;
 const MARKET_END = 18;
-
 async function initDB() {
   try {
     await pool.query(`
@@ -46,7 +41,6 @@ async function initDB() {
         son_guncelleme TIMESTAMP DEFAULT NOW()
       )
     `);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS musteri_kayit (
         id SERIAL PRIMARY KEY,
@@ -63,17 +57,14 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-
     // Mevcut tabloya RDP kolonlari ekle (zaten varsa hata vermez)
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_ip VARCHAR(100)`);
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_kullanici VARCHAR(100)`);
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS rdp_sifre VARCHAR(200)`);
     await pool.query(`ALTER TABLE musteri_kayit ADD COLUMN IF NOT EXISTS sozlesme_link TEXT`);
-
     await pool.query(`ALTER TABLE musteriler ADD COLUMN IF NOT EXISTS al_pozisyon INT DEFAULT 0`);
     await pool.query(`ALTER TABLE musteriler ADD COLUMN IF NOT EXISTS sat_pozisyon INT DEFAULT 0`);
     await pool.query(`ALTER TABLE musteriler ADD COLUMN IF NOT EXISTS nakit_pozisyon INT DEFAULT 0`);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS kopukluk_bildirimleri (
         id SERIAL PRIMARY KEY,
@@ -84,7 +75,6 @@ async function initDB() {
         baglanti_zamani TIMESTAMP
       )
     `);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ayrilanlar (
         id SERIAL PRIMARY KEY,
@@ -99,7 +89,6 @@ async function initDB() {
         ayilis_tarihi TIMESTAMP DEFAULT NOW()
       )
     `);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS grafik_uyarilari (
         id SERIAL PRIMARY KEY,
@@ -111,7 +100,6 @@ async function initDB() {
         cozulme_zamani TIMESTAMP
       )
     `);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS para_hareketleri (
         id SERIAL PRIMARY KEY,
@@ -123,7 +111,6 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS robot_gunluk (
         id SERIAL PRIMARY KEY,
@@ -148,7 +135,6 @@ async function initDB() {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-
     // === POZISYON DETAY TABLOSU ===
     await pool.query(`
       CREATE TABLE IF NOT EXISTS musteri_pozisyonlar (
@@ -160,7 +146,6 @@ async function initDB() {
         UNIQUE(hesap_no, hisse)
       )
     `);
-
     // === LOT SISTEMI ===
     await pool.query(`
       CREATE TABLE IF NOT EXISTS lot_referans (
@@ -173,7 +158,6 @@ async function initDB() {
         son_guncelleyen VARCHAR(20) DEFAULT 'migration'
       )
     `);
-
     // Mevcut musterilerden lot_referans'a otomatik aktarim (yoksa ekle)
     await pool.query(`
       INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, son_guncelleyen)
@@ -182,12 +166,10 @@ async function initDB() {
       WHERE baslangic_parasi IS NOT NULL
       ON CONFLICT (hesap_no) DO NOTHING
     `);
-
     console.log('Tablolar hazir (sinyaller + pozisyon detay + lot_referans dahil)');
-    
+
     // override_mode kolonu yoksa ekle
     await pool.query(`ALTER TABLE sinyaller ADD COLUMN IF NOT EXISTS override_mode VARCHAR(10) DEFAULT 'TV'`).catch(() => {});
-
     const check = await pool.query('SELECT COUNT(*) FROM musteri_kayit');
     if (parseInt(check.rows[0].count) === 0) {
       await insertInitialCustomers();
@@ -196,7 +178,6 @@ async function initDB() {
     console.error('Tablo hatasi:', err.message);
   }
 }
-
 async function insertInitialCustomers() {
   // [hesap_no, baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, rdp_ip, rdp_kullanici, rdp_sifre]
   const customers = [
@@ -272,7 +253,6 @@ async function insertInitialCustomers() {
     ['7133687', 40000,   40000,   0,  'TL',  true,  '185.130.57.133',     'administrator', 'vZP8O3sFc28d'],
     ['7134170', 100000,  100000,  0,  'TL',  true,  '185.184.27.102',     'makdos',        'r2e84ZN2KO4a']
   ];
-
   for (const c of customers) {
     try {
       await pool.query(
@@ -283,7 +263,6 @@ async function insertInitialCustomers() {
   }
   console.log('Musteriler eklendi');
 }
-
 // Mevcut musterilere RDP bilgisi ekle (rdp_ip bos olanlari guncelle)
 async function syncRdpData() {
   const rdpMap = {
@@ -371,7 +350,6 @@ async function syncRdpData() {
   }
   if (updated > 0) console.log('RDP bilgisi guncellendi:', updated, 'musteri');
 }
-
 initDB().then(async () => {
   await syncRdpData();
   // Eksik kayitlari ekle
@@ -389,10 +367,8 @@ initDB().then(async () => {
   }
   console.log('Eksik kayitlar eklendi');
 });
-
 // Dolar kuru
 let cachedKur = { value: 43, timestamp: 0 };
-
 async function getDolarKuru() {
   const now = Date.now();
   if (now - cachedKur.timestamp < 600000 && cachedKur.value) return cachedKur.value;
@@ -408,7 +384,6 @@ async function getDolarKuru() {
   } catch (e) {}
   return cachedKur.value || 43;
 }
-
 function isMarketOpen() {
   const now = new Date();
   const tr = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
@@ -417,13 +392,11 @@ function isMarketOpen() {
   if (day === 0 || day === 6) return false;
   return hour >= MARKET_START && hour < MARKET_END;
 }
-
 // =====================================================
 // TELEGRAM OTOMATIK GECE YEDEK
 // =====================================================
 const TELEGRAM_BACKUP_TOKEN = process.env.TELEGRAM_BACKUP_TOKEN || '';
 const TELEGRAM_BACKUP_CHAT  = process.env.TELEGRAM_BACKUP_CHAT  || '';
-
 async function sendTelegramBackup() {
   if (!TELEGRAM_BACKUP_TOKEN || !TELEGRAM_BACKUP_CHAT) {
     console.log('Telegram backup: token veya chat_id tanimlanmamis, atlanıyor.');
@@ -439,7 +412,6 @@ async function sendTelegramBackup() {
       ORDER BY COALESCE(m.varlik,0) DESC
     `);
     const rows = result.rows;
-
     function calcKom(c) {
       if (!c.baslangic_parasi || c.es_dost) return 0;
       const varlik = parseFloat(c.varlik) || 0;
@@ -448,11 +420,9 @@ async function sendTelegramBackup() {
       if (c.para_birimi === 'USD') return (varlik / kur - baslangic) * oran * kur;
       return (varlik - baslangic) * oran;
     }
-
     const now = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
     const totalVarlik = rows.reduce((s, c) => s + (parseFloat(c.varlik) || 0), 0);
     const totalKomisyon = rows.reduce((s, c) => s + calcKom(c), 0);
-
     const headers = ['Hesap No','Isim','Para Birimi','Varlik','Baslangic','Komisyon %','Komisyon TL','Aktif'];
     const csvRows = rows.map(c => {
       const k = calcKom(c);
@@ -472,9 +442,8 @@ async function sendTelegramBackup() {
       '"Kur","' + kur.toFixed(2) + '"',
       '"Tarih","' + now + '"'
     ];
-    const csv = '\uFEFF' + headers.map(h => '"'+h+'"').join(',') + '\n' + csvRows.join('\n') + '\n' + summary.join('\n');
+    const csv = '﻿' + headers.map(h => '"'+h+'"').join(',') + '\n' + csvRows.join('\n') + '\n' + summary.join('\n');
     const filename = 'yedek_' + new Date().toISOString().slice(0,10) + '.csv';
-
     const FormData = (await import('form-data')).default;
     const form = new FormData();
     form.append('chat_id', TELEGRAM_BACKUP_CHAT);
@@ -484,7 +453,6 @@ async function sendTelegramBackup() {
       '\n💰 Toplam: ' + new Intl.NumberFormat('tr-TR').format(Math.round(totalVarlik)) + ' TL'
     );
     form.append('document', Buffer.from(csv, 'utf8'), { filename, contentType: 'text/csv' });
-
     const tgRes = await fetch('https://api.telegram.org/bot' + TELEGRAM_BACKUP_TOKEN + '/sendDocument', {
       method: 'POST', body: form, headers: form.getHeaders()
     });
@@ -495,7 +463,6 @@ async function sendTelegramBackup() {
     console.error('Telegram backup hatasi:', err.message);
   }
 }
-
 function scheduleDailyBackup() {
   function msUntil02() {
     const now = new Date();
@@ -512,7 +479,6 @@ function scheduleDailyBackup() {
   console.log('Gece yedek zamanlandi. Ilk yedek', Math.round(msUntil02()/3600000) + ' saat sonra.');
 }
 scheduleDailyBackup();
-
 // =====================================================
 // ROBOT GUNLUK KAYIT - Her gun 18:30 TRT (15:30 UTC)
 // =====================================================
@@ -521,14 +487,12 @@ async function saveRobotGunluk() {
     const now = new Date();
     const tr = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
     const tarih = tr.toISOString().slice(0,10);
-
     // O gun zaten kayitli mi?
     const existing = await pool.query('SELECT id FROM robot_gunluk WHERE tarih = $1', [tarih]);
     if (existing.rows.length > 0) {
       console.log('Robot gunluk zaten kayitli:', tarih);
       return;
     }
-
     // Para hareketi olan hesaplari bul (bugun)
     const hareketliHesaplar = await pool.query(
       "SELECT DISTINCT hesap_no FROM para_hareketleri WHERE DATE(created_at AT TIME ZONE 'Europe/Istanbul') = $1",
@@ -537,7 +501,6 @@ async function saveRobotGunluk() {
     const hareketliSet = new Set(hareketliHesaplar.rows.map(r => r.hesap_no));
     if (hareketliSet.size > 0)
       console.log('Robot gunluk: para hareketi olan hesaplar filtrелениyor:', [...hareketliSet]);
-
     // Musterilerin bugunki ortalamasini al - para hareketi olanlari cikar
     const result = await pool.query('SELECT hesap_no, bugun_yuzde FROM musteriler WHERE bugun_yuzde IS NOT NULL');
     if (result.rows.length === 0) {
@@ -552,7 +515,6 @@ async function saveRobotGunluk() {
       return;
     }
     const ort = vals.reduce((a,b) => a+b, 0) / vals.length;
-
     // Son bakiyeyi bul
     const lastRow = await pool.query('SELECT bakiye FROM robot_gunluk ORDER BY tarih DESC LIMIT 1');
     let bakiye;
@@ -562,7 +524,6 @@ async function saveRobotGunluk() {
       // Ilk kayit - hardcoded son Excel bakiyesi
       bakiye = 301216.89 * (1 + ort/100);
     }
-
     await pool.query(
       'INSERT INTO robot_gunluk (tarih, bakiye, gunluk_pct, musteri_sayisi) VALUES ($1, $2, $3, $4)',
       [tarih, Math.round(bakiye*100)/100, Math.round(ort*10000)/10000, vals.length]
@@ -572,7 +533,6 @@ async function saveRobotGunluk() {
     console.error('Robot gunluk kayit hatasi:', err.message);
   }
 }
-
 function scheduleRobotGunluk() {
   function msUntil1830() {
     const now = new Date();
@@ -589,12 +549,9 @@ function scheduleRobotGunluk() {
   console.log('Robot gunluk kayit zamanlandi. Ilk kayit', Math.round(msUntil1830()/3600000*10)/10 + ' saat sonra (18:30 TRT).');
 }
 scheduleRobotGunluk();
-
-
 // =====================================================
 // API ENDPOINTS
 // =====================================================
-
 app.post('/api/veri', async (req, res) => {
   try {
     const { hesap_no, isim, varlik, toplam_yuzde, bugun_kar, al_pozisyon, sat_pozisyon, nakit_pozisyon, acik, kapali, buyukluk, bugun_yuzde } = req.body;
@@ -613,7 +570,6 @@ app.post('/api/veri', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 app.get('/api/musteriler', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -628,7 +584,6 @@ app.get('/api/musteriler', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 app.get('/api/kayitli', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -642,7 +597,6 @@ app.get('/api/kayitli', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 app.post('/api/kayit', async (req, res) => {
   try {
     const { hesap_no, baslangic_parasi, hakedis_miktari, komisyon_orani, para_birimi, es_dost, rdp_ip, rdp_kullanici, rdp_sifre } = req.body;
@@ -663,7 +617,6 @@ app.post('/api/kayit', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 app.put('/api/kayit/:hesap_no', async (req, res) => {
   try {
     const { hesap_no } = req.params;
@@ -677,29 +630,31 @@ app.put('/api/kayit/:hesap_no', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
+// === PATCH A: Cascade DELETE — tum ilgili tablolardan siler ===
 app.delete('/api/musteri/:hesap_no', async (req, res) => {
   try {
     const { hesap_no } = req.params;
     await pool.query('DELETE FROM musteri_kayit WHERE hesap_no=$1', [hesap_no]);
     await pool.query('DELETE FROM musteriler WHERE hesap_no=$1', [hesap_no]);
+    await pool.query('DELETE FROM lot_referans WHERE hesap_no=$1', [hesap_no]);
+    await pool.query('DELETE FROM musteri_pozisyonlar WHERE hesap_no=$1', [hesap_no]);
+    await pool.query('DELETE FROM para_hareketleri WHERE hesap_no=$1', [hesap_no]);
+    await pool.query('DELETE FROM kopukluk_bildirimleri WHERE hesap_no=$1', [hesap_no]);
+    await pool.query('DELETE FROM grafik_uyarilari WHERE hesap_no=$1', [hesap_no]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 app.get('/api/kur', async (req, res) => {
   const kur = await getDolarKuru();
   res.json({ kur, marketOpen: isMarketOpen() });
 });
-
 // Manuel yedek tetikle (test icin)
 app.get('/api/backup-now', async (req, res) => {
   await sendTelegramBackup();
   res.json({ ok: true });
 });
-
 // Excel/CSV export
 app.get('/api/export', async (req, res) => {
   try {
@@ -715,7 +670,6 @@ app.get('/api/export', async (req, res) => {
     `);
     const rows = result.rows;
     const now = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
-
     function calcKom(c) {
       if (!c.baslangic_parasi || c.es_dost) return 0;
       const varlik = parseFloat(c.varlik) || 0;
@@ -724,7 +678,6 @@ app.get('/api/export', async (req, res) => {
       if (c.para_birimi === 'USD') return (varlik / kur - baslangic) * oran * kur;
       return (varlik - baslangic) * oran;
     }
-
     const headers = ['Hesap No','Isim','Para Birimi','Varlik','Baslangic Parasi','Hakedis','Komisyon Orani %','Komisyon TL','Bugun Kar','Bugun %','Acik Pozisyon','Es Dost','Aktif','Sozlesme','Son Guncelleme','Kayit Tarihi','RDP IP','RDP Kullanici','RDP Sifre'];
     const csvRows = rows.map(c => {
       const komisyon = calcKom(c);
@@ -740,10 +693,8 @@ app.get('/api/export', async (req, res) => {
         c.sozlesme_link||'', c.rdp_ip||'', c.rdp_kullanici||'', c.rdp_sifre||''
       ].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',');
     });
-
     const totalVarlik = rows.reduce((s, c) => s + (parseFloat(c.varlik) || 0), 0);
     const totalKomisyon = rows.reduce((s, c) => s + calcKom(c), 0);
-
     const summary = [
       '', '"OZET"',
       '"Toplam Musteri","' + rows.length + '"',
@@ -752,8 +703,7 @@ app.get('/api/export', async (req, res) => {
       '"Dolar Kuru","' + kur.toFixed(2) + '"',
       '"Rapor Tarihi","' + now + '"'
     ];
-
-    const csv = '\uFEFF' + headers.map(h => '"'+h+'"').join(',') + '\n' + csvRows.join('\n') + '\n' + summary.join('\n');
+    const csv = '﻿' + headers.map(h => '"'+h+'"').join(',') + '\n' + csvRows.join('\n') + '\n' + summary.join('\n');
     const filename = 'musteri_raporu_' + new Date().toISOString().slice(0,10) + '.csv';
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
@@ -762,7 +712,6 @@ app.get('/api/export', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 app.get('/', robotAuth, (req, res) => { res.send(getMainPage()); });
 app.get('/musteriler', robotAuth, (req, res) => { res.send(getCustomersPage()); });
 app.get('/robot', robotAuth, (req, res) => { res.send(getRobotPage()); });
@@ -771,7 +720,6 @@ app.post('/api/grafik-uyari', async (req, res) => {
   try {
     const { hesap_no, isim, mesaj, durum } = req.body;
     if (!hesap_no || !durum) return res.status(400).json({ error: 'eksik veri' });
-
     if (durum === 'hata') {
       // Aynı hesap için aktif uyarı var mı?
       const existing = await pool.query(
@@ -802,7 +750,6 @@ app.post('/api/grafik-uyari', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Aktif grafik uyarılarını listele
 app.get('/api/grafik-uyarilari', async (req, res) => {
   try {
@@ -814,13 +761,12 @@ app.get('/api/grafik-uyarilari', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Kopukluk bildirimi - MQL5'ten gelir
 app.post('/api/kopukluk', async (req, res) => {
   try {
     const { hesap_no, isim, durum } = req.body;
     if (!hesap_no || !durum) return res.status(400).json({ error: 'eksik veri' });
-    
+
     if (durum === 'kopuk') {
       // Zaten kopuk kaydı var mı?
       const existing = await pool.query(
@@ -847,7 +793,6 @@ app.post('/api/kopukluk', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Aktif kopuklukları listele
 app.get('/api/kopukluklar', async (req, res) => {
   try {
@@ -859,28 +804,26 @@ app.get('/api/kopukluklar', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-// Musteri sil
+// NOT: Asagidaki ikinci app.delete handler'i Express tarafindan asla cagrilmiyor
+// (yukarida ayni path'li ilk handler var). Geri uyumluluk icin biraktik, ileride silinebilir.
 app.delete('/api/musteri/:hesapNo', async (req, res) => {
   try {
     const { hesapNo } = req.params;
-
     // Mevcut bilgileri al
     const mRes = await pool.query('SELECT m.*, k.komisyon_orani, k.para_birimi, k.es_dost, k.sozlesme_link, k.aktif FROM musteriler m LEFT JOIN musteri_kayit k ON m.hesap_no = k.hesap_no WHERE m.hesap_no = $1', [hesapNo]);
-    
+
     // Musteriler tablosundan direkt bilgi al (JOIN olmadan)
     const mDirect = await pool.query('SELECT * FROM musteriler WHERE hesap_no = $1', [hesapNo]);
     const kDirect = await pool.query('SELECT * FROM musteri_kayit WHERE hesap_no::text = $1::text', [hesapNo]);
-    
+
     const mRow = mDirect.rows[0] || {};
     const kRow = kDirect.rows[0] || {};
-    
+
     await pool.query(
       'INSERT INTO ayrilanlar (hesap_no, isim, son_varlik, para_birimi, es_dost, komisyon_orani, sozlesme_link, aktif) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
       [hesapNo, mRow.isim||null, mRow.varlik||0, kRow.para_birimi||'TL', kRow.es_dost||false, kRow.komisyon_orani||0, kRow.sozlesme_link||null, kRow.aktif!==false]
     );
     console.log('Ayrilanlar kaydi eklendi:', hesapNo, mRow.isim);
-
     // Tüm tablolardan sil
     await pool.query('DELETE FROM musteriler WHERE hesap_no = $1', [hesapNo]);
     await pool.query('DELETE FROM musteri_kayit WHERE hesap_no = $1', [hesapNo]);
@@ -888,14 +831,13 @@ app.delete('/api/musteri/:hesapNo', async (req, res) => {
     await pool.query('DELETE FROM kopukluk_bildirimleri WHERE hesap_no = $1', [hesapNo]);
     await pool.query('DELETE FROM grafik_uyarilari WHERE hesap_no = $1', [hesapNo]);
     await pool.query('DELETE FROM lot_referans WHERE hesap_no = $1', [hesapNo]);
-    
+
     console.log('Musteri silindi ve ayrilanlar tablosuna eklendi:', hesapNo);
     res.json({ ok: true });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Ayrılanlar listesi
 app.get('/api/ayrilanlar', async (req, res) => {
   try {
@@ -905,7 +847,6 @@ app.get('/api/ayrilanlar', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Para hareketi bildirimi (MQL5'ten gelir)
 app.post('/api/para-hareketi', async (req, res) => {
   try {
@@ -921,7 +862,6 @@ app.post('/api/para-hareketi', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Bugun para hareketi olan hesaplar (stat filtresi icin)
 app.get('/api/para-hareketleri-bugun', async (req, res) => {
   try {
@@ -935,12 +875,11 @@ app.get('/api/para-hareketleri-bugun', async (req, res) => {
     res.status(500).json([]);
   }
 });
-
 // Bekleyen para hareketleri listesi
 app.get('/api/para-hareketleri', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT ph.*, mk.baslangic_parasi 
+      `SELECT ph.*, mk.baslangic_parasi
        FROM para_hareketleri ph
        LEFT JOIN musteri_kayit mk ON mk.hesap_no = ph.hesap_no
        WHERE ph.durum = 'bekliyor'
@@ -951,17 +890,14 @@ app.get('/api/para-hareketleri', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Para hareketi onayla/reddet
 app.post('/api/para-hareketi/:id/onayla', async (req, res) => {
   try {
     const { id } = req.params;
     const { onay } = req.body; // true = onayla, false = reddet
-
     const ph = await pool.query('SELECT * FROM para_hareketleri WHERE id = $1', [id]);
     if (ph.rows.length === 0) return res.status(404).json({ error: 'bulunamadi' });
     const h = ph.rows[0];
-
     if (onay) {
       // Başlangıç parasını güncelle
       const kayit = await pool.query('SELECT baslangic_parasi FROM musteri_kayit WHERE hesap_no = $1', [h.hesap_no]);
@@ -972,35 +908,29 @@ app.post('/api/para-hareketi/:id/onayla', async (req, res) => {
         console.log('Baslangic parasi guncellendi:', h.hesap_no, mevcut, '->', yeni);
       }
     }
-
     await pool.query("UPDATE para_hareketleri SET durum = $1 WHERE id = $2",
       [onay ? 'onaylandi' : 'reddedildi', id]);
-
     res.json({ ok: true });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Robot gunluk elle guncelle
 app.post('/api/robot-gunluk/:tarih/guncelle', async (req, res) => {
   try {
     const { tarih } = req.params;
     const { gunluk_pct } = req.body;
     if (gunluk_pct === undefined) return res.status(400).json({ error: 'gunluk_pct gerekli' });
-
     // Onceki gunun bakiyesini bul
     const prev = await pool.query(
       'SELECT bakiye, tarih FROM robot_gunluk WHERE tarih < $1 ORDER BY tarih DESC LIMIT 1',
       [tarih]
     );
-    
+
     // DAILY_DATA son bakiyesi - DB'de yoksa
     let prevBakiye = 301216.89; // Excel son bakiye
     if (prev.rows.length > 0) prevBakiye = parseFloat(prev.rows[0].bakiye);
-
     const yeniBakiye = Math.round(prevBakiye * (1 + parseFloat(gunluk_pct) / 100) * 100) / 100;
-
     // Guncelle veya ekle
     const existing = await pool.query('SELECT id FROM robot_gunluk WHERE tarih = $1', [tarih]);
     if (existing.rows.length > 0) {
@@ -1014,7 +944,6 @@ app.post('/api/robot-gunluk/:tarih/guncelle', async (req, res) => {
         [tarih, yeniBakiye, gunluk_pct]
       );
     }
-
     // Sonraki gunleri de guncelle (bileşik etki)
     const sonraki = await pool.query(
       'SELECT tarih, gunluk_pct FROM robot_gunluk WHERE tarih > $1 ORDER BY tarih ASC',
@@ -1025,14 +954,12 @@ app.post('/api/robot-gunluk/:tarih/guncelle', async (req, res) => {
       b = Math.round(b * (1 + parseFloat(row.gunluk_pct) / 100) * 100) / 100;
       await pool.query('UPDATE robot_gunluk SET bakiye = $1 WHERE tarih = $2', [b, row.tarih]);
     }
-
     console.log('Robot gunluk guncellendi:', tarih, gunluk_pct + '%', 'yeni bakiye:', yeniBakiye);
     res.json({ ok: true, bakiye: yeniBakiye });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 app.get('/api/robot-gunluk', async (req, res) => {
   try {
     const result = await pool.query('SELECT tarih, bakiye, gunluk_pct, musteri_sayisi FROM robot_gunluk ORDER BY tarih ASC');
@@ -1042,11 +969,9 @@ app.get('/api/robot-gunluk', async (req, res) => {
   }
 });
 app.get('/robot-detay', robotAuth, (req, res) => { res.send(getRobotDetayPage()); });
-
 // =====================================================
 // LOT SISTEMI API
 // =====================================================
-
 // Robot lot okur (GET) — saatte bir veya OnInit'te
 app.get('/api/lot', async (req, res) => {
   try {
@@ -1064,19 +989,16 @@ app.get('/api/lot', async (req, res) => {
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // Robot vade tasimada lot yazar (POST) — sadece override=false ise yazar
 app.post('/api/lot', async (req, res) => {
   try {
     const { hesap_no, baslangic_parasi, baslangic_tarihi } = req.body;
     if (!hesap_no || !baslangic_parasi) return res.status(400).json({ error: 'eksik veri' });
-
     // Override aktifse robotun yazmasini reddet
     const mevcut = await pool.query('SELECT override FROM lot_referans WHERE hesap_no = $1', [hesap_no]);
     if (mevcut.rows.length > 0 && mevcut.rows[0].override) {
       return res.json({ ok: false, reason: 'override aktif, robot yazamaz' });
     }
-
     const tarih = baslangic_tarihi || new Date().toISOString();
     await pool.query(`
       INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleme, son_guncelleyen)
@@ -1085,18 +1007,15 @@ app.post('/api/lot', async (req, res) => {
         baslangic_parasi = $2, baslangic_tarihi = $3, son_guncelleme = NOW(), son_guncelleyen = 'robot'
       WHERE lot_referans.override = FALSE
     `, [hesap_no, baslangic_parasi, tarih]);
-
     console.log('Lot guncellendi (robot):', hesap_no, baslangic_parasi);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // Sen panelden manuel guncelle — override aktif olur
 app.post('/api/lot-override', async (req, res) => {
   try {
     const { hesap_no, baslangic_parasi, baslangic_tarihi } = req.body;
     if (!hesap_no || !baslangic_parasi) return res.status(400).json({ error: 'eksik veri' });
-
     const tarih = baslangic_tarihi || new Date().toISOString();
     await pool.query(`
       INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleme, son_guncelleyen)
@@ -1104,12 +1023,10 @@ app.post('/api/lot-override', async (req, res) => {
       ON CONFLICT (hesap_no) DO UPDATE SET
         baslangic_parasi = $2, baslangic_tarihi = $3, override = TRUE, son_guncelleme = NOW(), son_guncelleyen = 'manuel'
     `, [hesap_no, baslangic_parasi, tarih]);
-
     console.log('Lot guncellendi (manuel):', hesap_no, baslangic_parasi);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // Override kaldir — robot tekrar otomatik yazabilir
 app.post('/api/lot-reset', async (req, res) => {
   try {
@@ -1119,7 +1036,15 @@ app.post('/api/lot-reset', async (req, res) => {
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
+// === PATCH B: Lot referans sil (yetim kayitlari temizlemek icin - musteri kaydina dokunmaz) ===
+app.delete('/api/lot/:hesap_no', async (req, res) => {
+  try {
+    const { hesap_no } = req.params;
+    await pool.query('DELETE FROM lot_referans WHERE hesap_no = $1', [hesap_no]);
+    await pool.query('DELETE FROM musteri_pozisyonlar WHERE hesap_no = $1', [hesap_no]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // Tum lot kayitlarini listele (panel sayfasi icin)
 app.get('/api/lot-list', async (req, res) => {
   try {
@@ -1134,10 +1059,8 @@ app.get('/api/lot-list', async (req, res) => {
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // Lot Sistemi sayfasi
 app.get('/lot-sistemi', robotAuth, (req, res) => { res.send(getLotSistemiPage()); });
-
 // =====================================================
 // TUM OVERRIDE'LARI KALDIR (TEK SEFERLIK)
 // Mevcut baslangic_parasi degerlerini KORURUR, sadece override=FALSE yapar
@@ -1145,13 +1068,13 @@ app.get('/lot-sistemi', robotAuth, (req, res) => { res.send(getLotSistemiPage())
 app.get('/api/lot-toplu-otomatige-al', async (req, res) => {
   try {
     const result = await pool.query(`
-      UPDATE lot_referans 
+      UPDATE lot_referans
       SET override = FALSE, son_guncelleyen = 'reset_toplu', son_guncelleme = NOW()
       WHERE override = TRUE
       RETURNING hesap_no, baslangic_parasi
     `);
-    res.json({ 
-      ok: true, 
+    res.json({
+      ok: true,
       ozet: { otomatige_alindi: result.rowCount },
       detay: result.rows.map(r => `${r.hesap_no}: ${r.baslangic_parasi} TL (otomatik mod)`)
     });
@@ -1159,7 +1082,6 @@ app.get('/api/lot-toplu-otomatige-al', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // =====================================================
 // TUM BASLANGIC TARIHLERINI BUGUNE AL (TEK SEFERLIK)
 // Vade tasimadan sonra equity guncellendiginde tarih de bugun olmali
@@ -1168,12 +1090,12 @@ app.get('/api/lot-toplu-tarih-bugun', async (req, res) => {
   try {
     const simdi = new Date().toISOString();
     const result = await pool.query(`
-      UPDATE lot_referans 
+      UPDATE lot_referans
       SET baslangic_tarihi = $1, son_guncelleme = NOW(), son_guncelleyen = 'tarih_reset'
       RETURNING hesap_no, baslangic_parasi, baslangic_tarihi
     `, [simdi]);
-    res.json({ 
-      ok: true, 
+    res.json({
+      ok: true,
       ozet: { guncellenen: result.rowCount, yeni_tarih: simdi },
       detay: result.rows.map(r => `${r.hesap_no}: tarih -> ${r.baslangic_tarihi}`)
     });
@@ -1181,7 +1103,6 @@ app.get('/api/lot-toplu-tarih-bugun', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // =====================================================
 // PORTFOYDEN CIKARILAN HISSELERI TEMIZLE
 // 7 hisseli yeni portfoy: AKBNK, GARAN, YKBNK, ISCTR, EKGYO, THYAO, EREGL
@@ -1190,19 +1111,19 @@ app.get('/api/lot-toplu-tarih-bugun', async (req, res) => {
 app.get('/api/eski-hisseleri-temizle', async (req, res) => {
   try {
     const aktifHisseler = ['AKBNK', 'GARAN', 'YKBNK', 'ISCTR', 'EKGYO', 'THYAO', 'EREGL'];
-    
+
     // Sinyaller tablosundan eski hisseleri sil
     const sinyalSil = await pool.query(
       `DELETE FROM sinyaller WHERE hisse NOT IN ($1, $2, $3, $4, $5, $6, $7) RETURNING hisse`,
       aktifHisseler
     );
-    
+
     // Musteri pozisyonlarindan eski hisseleri sil
     const pozSil = await pool.query(
       `DELETE FROM musteri_pozisyonlar WHERE hisse NOT IN ($1, $2, $3, $4, $5, $6, $7) RETURNING hisse`,
       aktifHisseler
     );
-    
+
     res.json({
       ok: true,
       ozet: {
@@ -1216,7 +1137,6 @@ app.get('/api/eski-hisseleri-temizle', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // =====================================================
 // LOT TOPLU GUNCELLEME (TEK SEFERLIK - 30.04 vade taşıma sonrası
 // guncel AccountEquity degerlerini panele yazar - MANUEL MODE)
@@ -1241,15 +1161,12 @@ app.get('/api/lot-toplu-guncelle', async (req, res) => {
     '99303048': 1623395, '53718':    505710,  '53667':    217384,  '7167917':  219113,
     '7231923':  851204,  '53669':    204936,  '7134170':  193429,  '7133687':  130856
   };
-
   let updated = 0, inserted = 0;
   const log = [];
   const simdi = new Date().toISOString();
-
   try {
     for (const [hesap_no, deger] of Object.entries(guncelDegerler)) {
       const mevcut = await pool.query('SELECT baslangic_parasi FROM lot_referans WHERE hesap_no = $1', [hesap_no]);
-
       if (mevcut.rows.length === 0) {
         await pool.query(
           `INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleyen)
@@ -1270,7 +1187,6 @@ app.get('/api/lot-toplu-guncelle', async (req, res) => {
         log.push(`UPDATE: ${hesap_no}: ${eski} -> ${deger}`);
       }
     }
-
     res.json({
       ok: true,
       ozet: { toplam: Object.keys(guncelDegerler).length, updated, inserted },
@@ -1280,8 +1196,6 @@ app.get('/api/lot-toplu-guncelle', async (req, res) => {
     res.status(500).json({ error: err.message, log });
   }
 });
-
-
 // =====================================================
 // ANA SAYFA
 // =====================================================
@@ -1366,7 +1280,6 @@ function getMainPage() {
       <button class="header-btn" onclick="showSettings()">⚙️</button>
     </div>
   </div>
-
   <div class="stats">
     <div class="stat-card"><div class="stat-value" id="totalCustomers" style="cursor:pointer" onclick="showMusteriKarsilastirma()">-</div><div class="stat-label">Musteri</div></div>
     <div class="stat-card"><div class="stat-value" id="activeCustomers">-</div><div class="stat-label">Aktif</div></div>
@@ -1374,7 +1287,6 @@ function getMainPage() {
     <div class="stat-card"><div class="stat-value" id="todayProfit">-</div><div class="stat-label">Bugun Kar</div></div>
     <div class="stat-card"><div class="stat-value" id="avgPct">-</div><div class="stat-label">Bugün Ort %</div></div>
   </div>
-
   <div class="hakodis-panel">
     <div class="hakodis-panel-header" onclick="toggleHakodis()">
       📊 Hakediş Analizi <span id="hakodisArrow">▼</span>
@@ -1390,13 +1302,12 @@ function getMainPage() {
   </div>
   <div class="alerts" id="alerts"></div>
   <div class="last-update">Son: <span id="lastUpdate">-</span> | Kur: <span id="kurInfo">-</span></div>
-
   <div class="container">
     <div style="padding:10px 0 8px 0"><input type="text" id="mainSearch" placeholder="İsim veya hesap no ara..." oninput="filterMainTable()" style="width:100%;padding:9px 14px;border:1px solid #ddd;border-radius:20px;font-size:0.85rem;outline:none;box-sizing:border-box"></div>
     <div class="table-wrapper">
       <table>
         <thead>
-          <tr><th></th><th>Isim</th><th>Varlik</th><th>Bugun</th><th>%</th><th>Al</th><th>Sat</th><th>Nakit</th><th>Kmsy</th></tr>
+          <tr><th></th><th>Isim</th><th>Varlik</th><th>Bugun</th><th>%</th><th>Sinyal</th><th>Kmsy</th></tr>
         </thead>
         <tbody id="customerTable">
           <tr><td colspan="7" style="text-align:center;padding:30px">Yukleniyor...</td></tr>
@@ -1404,9 +1315,7 @@ function getMainPage() {
       </table>
     </div>
   </div>
-
   <button class="refresh-btn" onclick="loadData()">↻</button>
-
   <!-- Uyari Modal -->
   <div class="modal" id="modal">
     <div class="modal-content">
@@ -1417,9 +1326,7 @@ function getMainPage() {
       <ul class="modal-list" id="modalList"></ul>
     </div>
   </div>
-
   <!-- Ayarlar Modal -->
-  
 
 <!-- Para Hareketleri Modal -->
 <div class="modal" id="paraHareketModal" onclick="if(event.target===this)closeParaHareketModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
@@ -1431,7 +1338,6 @@ function getMainPage() {
     <div id="paraHareketListesi">Yukleniyor...</div>
   </div>
 </div>
-
 <div class="modal" id="settingsModal">
     <div class="modal-content">
       <div class="modal-header">
@@ -1496,14 +1402,13 @@ function getMainPage() {
       </div>
     </div>
   </div>
-
   <script>
     let allData = [];
     let majPos = 0, mean = 0, stdDev = 0;
     let kayitliData = [];
+    let pozStatusMap = {};
     let DOLAR_KURU = 43;
     let MARKET_OPEN = true;
-
     function formatMoney(n) {
       if (n === null || n === undefined || isNaN(n)) return '0';
       return new Intl.NumberFormat('tr-TR').format(Math.round(n));
@@ -1589,14 +1494,12 @@ function getMainPage() {
       const res=await fetch('/api/kayit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
       if(res.ok){alert('Eklendi!');closeSettings();loadData();}else alert('Hata!');
     }
-
     function toggleHakodis(){
       var body=document.getElementById('hakodisBody');
       var arrow=document.getElementById('hakodisArrow');
       if(body.style.display==='none'){body.style.display='block';arrow.textContent='▼';}
       else{body.style.display='none';arrow.textContent='►';}
     }
-
     function updateHakodisPanel(liveData, kayitliList) {
       var kayitliMap={};
       kayitliList.forEach(function(k){kayitliMap[k.hesap_no]=k;});
@@ -1640,7 +1543,6 @@ function getMainPage() {
         document.getElementById('hEnUzakIsim').style.color='#16a34a';
       }
     }
-
     async function loadData() {
       try {
         const [dataRes,kurRes,kayitliRes]=await Promise.all([fetch('/api/musteriler'),fetch('/api/kur'),fetch('/api/kayitli')]);
@@ -1685,9 +1587,38 @@ function getMainPage() {
         document.getElementById('lastUpdate').textContent=new Date().toLocaleString('tr-TR');
         updateHakodisPanel(allData, kayitliData);
         document.getElementById('kurInfo').textContent='$1 = '+DOLAR_KURU.toFixed(2)+' TL';
-        majPos=getMajorityPosition(allData);
-        const posIssues=allData.filter(c=>(c.acik_pozisyon||0)!==majPos);
         ({mean,stdDev}=getStdDev(allData));
+        // Sinyal-pozisyon uyumsuzlugu (sinyaller sayfasi mantigiyla birebir)
+        pozStatusMap = {};
+        let sinyalUyumsuzCount = 0;
+        try {
+          const sdRes = await fetch('/api/sinyal-durum');
+          const sd = await sdRes.json();
+          const sMap = {};
+          (sd.sinyaller||[]).forEach(s => {
+            const om = s.override_mode || 'TV';
+            let sb = parseInt(s.side_buy);
+            if (om === 'AL') sb = 1;
+            else if (om === 'SAT') sb = -1;
+            else if (om === 'NAKIT') sb = 0;
+            sMap[s.hisse] = sb === 1 ? 'AL' : sb === -1 ? 'SAT' : 'NAKIT';
+          });
+          const pMap = {};
+          (sd.pozisyon_detay||[]).forEach(p => {
+            if (!pMap[p.hesap_no]) pMap[p.hesap_no] = {};
+            pMap[p.hesap_no][p.hisse] = p.yon;
+          });
+          for (const hesap in pMap) {
+            let mismatch = false;
+            for (const h in sMap) {
+              if ((pMap[hesap][h]||'NAKIT') !== sMap[h]) { mismatch = true; break; }
+            }
+            pozStatusMap[hesap] = mismatch
+              ? '<span style="color:#dc2626;font-weight:bold">✗</span>'
+              : '<span style="color:#16a34a;font-weight:bold">✓</span>';
+            if (mismatch) sinyalUyumsuzCount++;
+          }
+        } catch(e) {}
         const outliers=allData.filter(c=>Math.abs((parseFloat(c.bugun_yuzde)||0)-mean)>stdDev*2);
         const gelenIDs=allData.map(m=>m.hesap_no);
         const gelmeyenler=kayitliData.filter(k=>k.aktif!==false&&!gelenIDs.includes(k.hesap_no));
@@ -1696,14 +1627,14 @@ function getMainPage() {
           const inactiveList=allData.filter(c=>!isActive(c.son_guncelleme));
           if(gelmeyenler.length>0)alertsHtml+='<button class="alert-btn danger" onclick="showGelmeyenler()">🚨 Veri Yok: '+gelmeyenler.length+'</button>';
           if(inactiveList.length>0)alertsHtml+='<button class="alert-btn danger" onclick="showInactive()">⚠ Pasif: '+inactiveList.length+'</button>';
-          if(posIssues.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showPosIssues()">📊 Poz: '+posIssues.length+'</button>';
+          if(sinyalUyumsuzCount>0)alertsHtml+='<button class="alert-btn danger" onclick="window.location.href=\'/sinyaller\'">📊 Pozisyon Uyumsuz: '+sinyalUyumsuzCount+'</button>';
           if(outliers.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: '+outliers.length+'</button>';
           if(kopData.length>0)alertsHtml+=\'<button class="alert-btn danger" onclick="showKopuklukModal()">🔴 Kopuk: \'+kopData.length+\'</button>\';
           if(grafData.length>0)alertsHtml+=\'<button class="alert-btn warning" onclick="showGrafikModal()">📊 Grafik: \'+grafData.length+\'</button>\';
           if(alertsHtml==='')alertsHtml='<button class="alert-btn success">✓ Normal</button>';
         }else{
           alertsHtml='<button class="alert-btn info">🌙 Piyasa Kapali - Kontrol Pasif</button>';
-          if(posIssues.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showPosIssues()">📊 Poz: '+posIssues.length+'</button>';
+          if(sinyalUyumsuzCount>0)alertsHtml+='<button class="alert-btn danger" onclick="window.location.href=\'/sinyaller\'">📊 Pozisyon Uyumsuz: '+sinyalUyumsuzCount+'</button>';
           if(outliers.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: '+outliers.length+'</button>';
           if(kopData.length>0)alertsHtml+=\'<button class="alert-btn danger" onclick="showKopuklukModal()">🔴 Kopuk: \'+kopData.length+\'</button>\';
           if(grafData.length>0)alertsHtml+=\'<button class="alert-btn warning" onclick="showGrafikModal()">📊 Grafik: \'+grafData.length+\'</button>\';
@@ -1721,10 +1652,9 @@ function getMainPage() {
           const active=isActive(c.son_guncelleme);
           const bugunKar=parseFloat(c.bugun_kar)||0;
           const bugunPct=parseFloat(c.bugun_yuzde)||0;
-          const posIssue=(c.acik_pozisyon||0)!==majPos;
           const isOutlier=Math.abs(bugunPct-mean)>stdDev*2;
           const komisyon=calcKomisyon(c);
-          let rowClass=c.es_dost?'es-dost':(posIssue||isOutlier)?'highlight':'';
+          let rowClass=c.es_dost?'es-dost':isOutlier?'highlight':'';
           let statusClass=!MARKET_OPEN?'status-neutral':active?'status-online':'status-offline';
           return '<tr class="'+rowClass+'">'+
             '<td><span class="status-dot '+statusClass+'"></span></td>'+
@@ -1732,16 +1662,14 @@ function getMainPage() {
             '<td>'+formatMoney(c.varlik)+'</td>'+
             '<td class="'+(bugunKar>=0?'positive':'negative')+'">'+(bugunKar>=0?'+':'')+formatMoney(bugunKar)+'</td>'+
             '<td class="'+(bugunPct>=0?'positive':'negative')+'">'+(bugunPct>=0?'+':'')+bugunPct.toFixed(1)+'%</td>'+
-            '<td>'+(c.acik_pozisyon||0)+'</td>'+
+            '<td style="text-align:center">'+(pozStatusMap[c.hesap_no]||'-')+'</td>'+
             '<td class="'+(komisyon>=0?'positive':'negative')+'">'+(c.es_dost?'-':formatMoney(komisyon))+'</td>'+
           '</tr>';
         }).join('');
     }
     function showInactive(){showModal('Pasif (65+ dk)',allData.filter(c=>!isActive(c.son_guncelleme)).map(c=>(c.isim||'-')+' (#'+c.hesap_no+')'));}
-    function showPosIssues(){const maj=getMajorityPosition(allData);showModal('Pozisyon Farki',allData.filter(c=>(c.acik_pozisyon||0)!==maj).map(c=>(c.isim||'-')+' - Acik: '+(c.acik_pozisyon||0)+' (gereken: '+maj+')'));}
     function showOutliers(){const {mean}=getStdDev(allData);showModal('Kar Sapmasi',allData.filter(c=>Math.abs((parseFloat(c.bugun_yuzde)||0)-mean)>getStdDev(allData).stdDev*2).map(c=>(c.isim||'-')+' - '+(parseFloat(c.bugun_yuzde)||0).toFixed(2)+'% (ort: '+mean.toFixed(2)+'%)'));}
     function showGelmeyenler(){const gelenIDs=allData.map(m=>m.hesap_no);showModal('Veri Gelmeyen Musteriler',kayitliData.filter(k=>k.aktif!==false&&!gelenIDs.includes(k.hesap_no)).map(k=>'#'+k.hesap_no));}
-
     function showMusteriKarsilastirma(){
       const gelenIDs=allData.map(m=>m.hesap_no);
       const kayitliIDs=kayitliData.filter(k=>k.aktif!==false).map(k=>k.hesap_no);
@@ -1763,11 +1691,10 @@ function getMainPage() {
     setInterval(loadData,30000);
     setInterval(loadParaHareketleri, 30000);
     loadParaHareketleri();
-  
+
 // ===== KOPUKLUK & GRAFİK DETAY MODALLERİ =====
 var _kopuklukData=[];
 var _grafikData=[];
-
 function showKopuklukDetay(){
   var html='<div style="padding:4px 0">';
   _kopuklukData.forEach(function(k){
@@ -1782,7 +1709,6 @@ function showKopuklukDetay(){
   html+='</div>';
   showAlertModal('🔴 Bağlantı Kopuk Hesaplar', html);
 }
-
 function showGrafikDetay(){
   var html='<div style="padding:4px 0">';
   _grafikData.forEach(function(g){
@@ -1797,7 +1723,6 @@ function showGrafikDetay(){
   html+='</div>';
   showAlertModal('📊 Grafik Hatası Olan Hesaplar', html);
 }
-
 function showKopuklukModal(){
   if(!_kopuklukData||_kopuklukData.length===0)return;
   var html='';
@@ -1811,7 +1736,6 @@ function showKopuklukModal(){
   });
   showAlertModal('🔴 Bağlantı Kopuk ('+_kopuklukData.length+')', html);
 }
-
 function showGrafikModal(){
   if(!_grafikData||_grafikData.length===0)return;
   var html='';
@@ -1825,7 +1749,6 @@ function showGrafikModal(){
   });
   showAlertModal('📊 Grafik Hatası ('+_grafikData.length+')', html);
 }
-
 function showAlertModal(title, content){
   var m=document.getElementById('alertDetailModal');
   if(!m){
@@ -1858,7 +1781,6 @@ function showAlertModal(title, content){
   document.getElementById('alertDetailContent').innerHTML=content;
   m.style.display='flex';
 }
-
 async function loadKopukluklar(){
   try{
     const [kopRes, grafRes] = await Promise.all([
@@ -1869,13 +1791,12 @@ async function loadKopukluklar(){
     _grafikData = await grafRes.json();
   }catch(e){}
 }
-
 // ===== PARA HAREKETLERİ =====
 async function loadParaHareketleri(){
   try{
     const r = await fetch('/api/para-hareketleri');
     const data = await r.json();
-    
+
     // Badge güncelle
     const badge = document.getElementById('paraHareketBadge');
     if(data.length > 0){
@@ -1887,19 +1808,18 @@ async function loadParaHareketleri(){
     return data;
   }catch(e){ return []; }
 }
-
 async function showParaHareketleri(){
   document.getElementById('paraHareketModal').style.display = 'flex';
   const liste = document.getElementById('paraHareketListesi');
   liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Yukleniyor...</div>';
-  
+
   const data = await loadParaHareketleri();
-  
+
   if(data.length === 0){
     liste.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Bekleyen hareket yok</div>';
     return;
   }
-  
+
   let html = '';
   data.forEach(h => {
     const miktar = parseFloat(h.miktar);
@@ -1910,7 +1830,7 @@ async function showParaHareketleri(){
     const mevcutBas = parseFloat(h.baslangic_parasi)||0;
     const yeniBas = mevcutBas + miktar;
     const tarih = new Date(h.created_at).toLocaleString('tr-TR');
-    
+
     html += '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:10px">'
           +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
           +'<div><div style="font-weight:600;font-size:0.9rem">'+icon+' '+(h.isim||h.hesap_no)+'</div>'
@@ -1928,10 +1848,9 @@ async function showParaHareketleri(){
           +'<button onclick="onaylaHareket('+h.id+', false, this)" style="flex:0 0 auto;padding:7px 14px;background:#f3f4f6;color:#666;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem">✕ Reddet</button>'
           +'</div></div>';
   });
-  
+
   liste.innerHTML = html;
 }
-
 async function onaylaHareket(id, onay, btn){
   btn.disabled = true;
   btn.textContent = 'Isleniyor...';
@@ -1955,16 +1874,13 @@ async function onaylaHareket(id, onay, btn){
     }
   }catch(e){ btn.disabled=false; btn.textContent='Hata'; }
 }
-
 function closeParaHareketModal(){
   document.getElementById('paraHareketModal').style.display = 'none';
 }
-
 </script>
 </body>
 </html>`;
 }
-
 // =====================================================
 // MUSTERILER SAYFASI
 // =====================================================
@@ -2050,11 +1966,9 @@ function getCustomersPage() {
     <h1>Musteriler</h1>
     <a href="/api/export" class="back-btn">📥 Excel</a>
   </div>
-
   <div class="search-bar">
     <input type="text" id="searchInput" placeholder="Isim veya hesap no ara..." oninput="filterCustomers()">
   </div>
-
   <div class="filter-bar">
     <button class="filter-btn active" onclick="setFilter('all', this)">Tumu <span class="count-badge" id="countAll">0</span></button>
     <button class="filter-btn" onclick="setFilter('active', this)">Aktif <span class="count-badge" id="countActive">0</span></button>
@@ -2063,28 +1977,23 @@ function getCustomersPage() {
     <button class="filter-btn" onclick="setFilter('kayitsiz', this)">Kayitsiz <span class="count-badge" id="countKayitsiz">0</span></button>
     <button class="filter-btn" onclick="setFilter('sozlesmesiz', this)">Sozlesmesiz <span class="count-badge" id="countSozlesmesiz">0</span></button>
   </div>
-
   <div class="customer-grid" id="customerGrid">
     <div class="no-data">Yukleniyor...</div>
   </div>
-
   <!-- Edit Modal -->
   <div class="modal" id="editModal" onclick="handleModalBackdrop(event)">
     <div class="modal-sheet" id="editSheet">
       <div class="modal-handle"></div>
       <div class="modal-title" id="editTitle">Musteri Duzenle</div>
       <div class="modal-subtitle" id="editSubtitle"></div>
-
       <div class="section-title">📊 Canli Veriler (MQL)</div>
       <div class="info-row"><span class="info-label">Son Varlik</span><span class="info-value" id="infoVarlik">-</span></div>
       <div class="info-row"><span class="info-label">Bugun Kar/Zarar</span><span class="info-value" id="infoBugunKar">-</span></div>
       <div class="info-row"><span class="info-label">Bugun %</span><span class="info-value" id="infoBugunPct">-</span></div>
       <div class="info-row"><span class="info-label">Acik Pozisyon</span><span class="info-value" id="infoAcikPoz">-</span></div>
       <div class="info-row"><span class="info-label">Son Guncelleme</span><span class="info-value" id="infoSonGun">-</span></div>
-
       <div class="section-title">✏️ Kayit Bilgileri</div>
       <input type="hidden" id="editHesapNo">
-
       <div class="form-row">
         <div class="form-group">
           <label>Baslangic Parasi</label>
@@ -2098,7 +2007,6 @@ function getCustomersPage() {
           </select>
         </div>
       </div>
-
       <div class="form-group">
         <label>Komisyon Orani (%)</label>
         <select id="editKomisyon">
@@ -2109,7 +2017,6 @@ function getCustomersPage() {
           <option value="0">%0 (Komisyonsuz)</option>
         </select>
       </div>
-
       <div class="checkbox-group">
         <input type="checkbox" id="editEsDost">
         <label for="editEsDost">Es-Dost (Komisyon hesaplanmaz)</label>
@@ -2118,9 +2025,7 @@ function getCustomersPage() {
         <input type="checkbox" id="editAktif">
         <label for="editAktif">Aktif musteri</label>
       </div>
-
       <div id="komisyonBilgi" style="margin-top:12px;padding:10px;background:#f0fdf4;border-radius:8px;font-size:0.8rem;color:#166534"></div>
-
       <!-- RDP Bolumu -->
       <hr class="rdp-divider">
       <div class="section-title">🖥️ Sunucu Bilgileri (RDP)</div>
@@ -2141,7 +2046,6 @@ function getCustomersPage() {
           </div>
         </div>
       </div>
-
       <div class="form-group">
         <label>📄 Sözleşme Linki (Google Drive)</label>
         <div style="display:flex;gap:6px;align-items:center">
@@ -2149,17 +2053,14 @@ function getCustomersPage() {
           <a id="sozlesmeAc" href="#" target="_blank" style="display:none;background:#16a34a;color:#fff;border:none;padding:7px 10px;border-radius:6px;font-size:0.8rem;text-decoration:none;white-space:nowrap">📄 Aç</a>
         </div>
       </div>
-
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="closeEditModal()">Iptal</button>
         <button class="btn btn-primary" onclick="saveCustomer()">💾 Kaydet</button>
       </div>
     </div>
   </div>
-
   <script>
     let allCustomers=[], kayitliCustomers=[], currentFilter='all', DOLAR_KURU=43, MARKET_OPEN=true;
-
     function formatMoney(n){if(n===null||n===undefined||isNaN(n))return '0';return new Intl.NumberFormat('tr-TR').format(Math.round(n));}
     function isActive(lastUpdate){if(!MARKET_OPEN)return null;if(!lastUpdate)return false;return(new Date()-new Date(lastUpdate))/1000/60<65;}
     function calcKomisyon(c){
@@ -2169,7 +2070,6 @@ function getCustomersPage() {
       return(varlik-baslangic)*oran;
     }
     function toggleSifre(){const el=document.getElementById('editRdpSifre');el.type=el.type==='password'?'text':'password';}
-
     function makeRdpLink(c) {
       if (!c.rdp_ip) return '';
       const ip = (c.rdp_ip||'').replace(/"/g,'&quot;');
@@ -2181,7 +2081,6 @@ function getCustomersPage() {
         '<button class="rdp-btn rdp-pass" data-copy="'+sifre+'" onclick="event.stopPropagation();copyText(this)">🔑 Sifre</button>' +
       '</div>';
     }
-
     function copyText(btn) {
       const text = btn.dataset.copy;
       const orig = btn.innerHTML;
@@ -2192,10 +2091,8 @@ function getCustomersPage() {
         setTimeout(() => { btn.innerHTML = orig; btn.style.background = origBg; }, 1500);
       }).catch(() => { prompt('Kopyala:', text); });
     }
-
     function setFilter(filter,btn){currentFilter=filter;document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderCards();}
     function filterCustomers(){renderCards();}
-
     function getFilteredData(){
       const search=document.getElementById('searchInput').value.toLowerCase();
       if(currentFilter==='kayitsiz'){
@@ -2210,7 +2107,6 @@ function getCustomersPage() {
       if(search)data=data.filter(c=>(c.isim||'').toLowerCase().includes(search)||c.hesap_no.toLowerCase().includes(search));
       return data;
     }
-
     function updateCounts(){
       const gelenIDs=allCustomers.map(c=>c.hesap_no);
       document.getElementById('countAll').textContent=allCustomers.length;
@@ -2220,9 +2116,7 @@ function getCustomersPage() {
       document.getElementById('countKayitsiz').textContent=kayitliCustomers.filter(k=>!gelenIDs.includes(k.hesap_no)).length;
       document.getElementById('countSozlesmesiz').textContent=allCustomers.filter(c=>!c.sozlesme_link).length;
     }
-
     let cardDataMap = {};
-
     function renderCards(){
       const data=getFilteredData();
       const grid=document.getElementById('customerGrid');
@@ -2263,7 +2157,6 @@ function getCustomersPage() {
         '</div>';
       }).join('');
     }
-
     async function showAyrilanlar(){
       var m = document.getElementById('ayrilanlarModal');
       if(!m){
@@ -2326,7 +2219,6 @@ function getCustomersPage() {
         document.getElementById('ayrilanlarBody').innerHTML = '<div style="padding:20px;color:#dc2626">Hata olustu</div>';
       }
     }
-
     function musteriSil(hesapNo, isim){
       if(!confirm(isim + ' isimli musteriyi silmek istiyor musunuz? Tum verisi silinecek!')) return;
       fetch('/api/musteri/'+hesapNo, {method:'DELETE'})
@@ -2341,7 +2233,6 @@ function getCustomersPage() {
         })
         .catch(()=>alert('Bağlantı hatası'));
     }
-
     function openEditModal(c){
       document.getElementById('editHesapNo').value=c.hesap_no;
       document.getElementById('editTitle').textContent=c.isim||('#'+c.hesap_no);
@@ -2373,7 +2264,6 @@ function getCustomersPage() {
       document.getElementById('editKomisyon').onchange=function(){updateKomisyonBilgi({...c,baslangic_parasi:document.getElementById('editBaslangic').value,komisyon_orani:this.value,para_birimi:document.getElementById('editParaBirimi').value});};
       document.getElementById('editModal').classList.add('show');
     }
-
     function updateKomisyonBilgi(c){
       const esDost=document.getElementById('editEsDost')?document.getElementById('editEsDost').checked:c.es_dost;
       if(esDost){document.getElementById('komisyonBilgi').textContent='';return;}
@@ -2388,10 +2278,8 @@ function getCustomersPage() {
         document.getElementById('komisyonBilgi').innerHTML='ℹ️ Canli veri geldiginde komisyon hesaplanacak.';
       }
     }
-
     function handleModalBackdrop(e){if(e.target===document.getElementById('editModal'))closeEditModal();}
     function closeEditModal(){document.getElementById('editModal').classList.remove('show');}
-
     async function saveCustomer(){
       const hesap_no=document.getElementById('editHesapNo').value;
       const baslangic=parseFloat(document.getElementById('editBaslangic').value)||0;
@@ -2411,7 +2299,6 @@ function getCustomersPage() {
         if(res.ok){closeEditModal();await loadData();}else alert('Kayit sirasinda hata olustu!');
       }catch(e){alert('Baglanti hatasi!');}
     }
-
     async function loadData(){
       try{
         const [mRes,kayitliRes,kurRes,kopRes,grafRes]=await Promise.all([fetch('/api/musteriler'),fetch('/api/kayitli'),fetch('/api/kur'),fetch('/api/kopukluklar'),fetch('/api/grafik-uyarilari')]);
@@ -2444,7 +2331,6 @@ function getCustomersPage() {
         document.getElementById('customerGrid').innerHTML='<div class="no-data" style="color:red">Veri yuklenemedi: '+e.message+'</div>';
       }
     }
-
     loadData().then(function(){
       var params=new URLSearchParams(window.location.search);
       var editNo=params.get('edit');
@@ -2458,9 +2344,7 @@ function getCustomersPage() {
 </body>
 </html>`;
 }
-
 const PORT = process.env.PORT || 3000;
-
 function getRobotLoginPage() {
   return `<!DOCTYPE html>
 <html lang="tr">
@@ -2498,7 +2382,6 @@ function giris(){
 </body>
 </html>`;
 }
-
 function getRobotPage() {
   return `<!DOCTYPE html>
 <html lang="tr">
@@ -2565,7 +2448,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 var DAILY_DATA=[["2024-01-01", 100000.0], ["2024-01-02", 107806.46], ["2024-01-03", 101487.67], ["2024-01-04", 103330.67], ["2024-01-05", 106614.43], ["2024-01-08", 114937.58], ["2024-01-09", 111130.76], ["2024-01-10", 115483.98], ["2024-01-11", 115473.88], ["2024-01-12", 113809.12], ["2024-01-15", 117940.64], ["2024-01-16", 119015.64], ["2024-01-17", 118245.89], ["2024-01-18", 117226.78], ["2024-01-19", 116816.08], ["2024-01-22", 117564.67], ["2024-01-23", 113711.1], ["2024-01-24", 112893.61], ["2024-01-25", 116830.08], ["2024-01-26", 124415.79], ["2024-01-29", 131723.39], ["2024-01-30", 133662.9], ["2024-01-31", 132524.84], ["2024-02-01", 135134.59], ["2024-02-02", 134691.0], ["2024-02-05", 135114.26], ["2024-02-06", 139417.21], ["2024-02-07", 140379.98], ["2024-02-08", 140296.71], ["2024-02-09", 139839.99], ["2024-02-12", 145948.23], ["2024-02-13", 139483.16], ["2024-02-14", 140835.86], ["2024-02-15", 144210.64], ["2024-02-16", 143738.75], ["2024-02-19", 143547.93], ["2024-02-20", 145086.31], ["2024-02-21", 144251.46], ["2024-02-22", 143669.15], ["2024-02-23", 144345.21], ["2024-02-26", 145232.75], ["2024-02-27", 144952.12], ["2024-02-28", 145114.32], ["2024-02-29", 145277.38], ["2024-03-01", 143476.85], ["2024-03-04", 142458.8], ["2024-03-05", 141921.84], ["2024-03-06", 142081.5], ["2024-03-07", 145848.66], ["2024-03-08", 148599.06], ["2024-03-11", 149308.4], ["2024-03-12", 147689.53], ["2024-03-13", 147304.84], ["2024-03-14", 147471.51], ["2024-03-15", 147638.76], ["2024-03-18", 148139.34], ["2024-03-19", 150247.08], ["2024-03-20", 150177.16], ["2024-03-21", 156493.66], ["2024-03-22", 156655.73], ["2024-03-25", 156468.29], ["2024-03-26", 153681.71], ["2024-03-27", 153720.54], ["2024-03-28", 155959.17], ["2024-03-29", 154602.82], ["2024-04-01", 153348.51], ["2024-04-02", 153939.41], ["2024-04-03", 152165.89], ["2024-04-04", 156359.37], ["2024-04-05", 165843.39], ["2024-04-08", 166179.3], ["2024-04-09", 166769.76], ["2024-04-15", 164085.21], ["2024-04-16", 161893.29], ["2024-04-17", 157182.62], ["2024-04-18", 157375.83], ["2024-04-19", 163006.39], ["2024-04-22", 159104.53], ["2024-04-24", 160684.36], ["2024-04-25", 157871.37], ["2024-04-26", 161259.63], ["2024-04-29", 167716.83], ["2024-04-30", 165248.47], ["2024-05-02", 167227.23], ["2024-05-03", 166297.04], ["2024-05-06", 164845.04], ["2024-05-07", 165905.38], ["2024-05-08", 162269.63], ["2024-05-09", 162196.27], ["2024-05-10", 159761.14], ["2024-05-13", 159636.07], ["2024-05-14", 157522.3], ["2024-05-15", 155207.37], ["2024-05-16", 157707.63], ["2024-05-17", 169037.93], ["2024-05-20", 173803.55], ["2024-05-21", 181542.98], ["2024-05-22", 177819.85], ["2024-05-23", 171581.58], ["2024-05-24", 170031.71], ["2024-05-27", 170584.49], ["2024-05-28", 170791.18], ["2024-05-29", 171018.13], ["2024-05-30", 171226.86], ["2024-05-31", 165911.42], ["2024-06-03", 165703.0], ["2024-06-04", 160735.29], ["2024-06-05", 161725.53], ["2024-06-06", 160950.67], ["2024-06-07", 161215.57], ["2024-06-10", 161789.38], ["2024-06-11", 161999.22], ["2024-06-12", 163051.18], ["2024-06-13", 165253.29], ["2024-06-14", 166343.95], ["2024-06-20", 169820.84], ["2024-06-21", 170362.78], ["2024-06-24", 170097.2], ["2024-06-25", 168108.28], ["2024-06-26", 167956.05], ["2024-06-27", 168499.86], ["2024-06-28", 168936.37], ["2024-07-01", 166624.84], ["2024-07-02", 166710.02], ["2024-07-03", 176374.8], ["2024-07-04", 179830.14], ["2024-07-05", 179089.19], ["2024-07-08", 178613.59], ["2024-07-09", 177252.17], ["2024-07-10", 177535.91], ["2024-07-11", 180578.35], ["2024-07-12", 180712.14], ["2024-07-16", 184260.44], ["2024-07-17", 183080.91], ["2024-07-18", 182353.63], ["2024-07-19", 181822.81], ["2024-07-22", 181474.64], ["2024-07-23", 180503.4], ["2024-07-24", 180547.04], ["2024-07-25", 180763.56], ["2024-07-26", 180975.13], ["2024-07-29", 181603.79], ["2024-07-30", 181812.55], ["2024-07-31", 182018.4], ["2024-08-01", 184692.5], ["2024-08-02", 180249.59], ["2024-08-05", 179263.61], ["2024-08-06", 179481.22], ["2024-08-07", 179701.21], ["2024-08-08", 180188.52], ["2024-08-09", 178033.64], ["2024-08-12", 176828.93], ["2024-08-13", 176777.61], ["2024-08-14", 171742.5], ["2024-08-15", 173954.59], ["2024-08-16", 168515.92], ["2024-08-19", 172714.42], ["2024-08-20", 172686.16], ["2024-08-21", 171718.76], ["2024-08-22", 172600.18], ["2024-08-23", 170950.95], ["2024-08-26", 171568.91], ["2024-08-27", 172107.51], ["2024-08-28", 170047.8], ["2024-08-29", 171148.11], ["2024-09-02", 178887.04], ["2024-09-03", 177190.69], ["2024-09-04", 176595.42], ["2024-09-05", 176686.33], ["2024-09-06", 176541.41], ["2024-09-09", 177197.55], ["2024-09-10", 177417.71], ["2024-09-11", 177636.23], ["2024-09-12", 177854.36], ["2024-09-13", 179841.04], ["2024-09-16", 178024.38], ["2024-09-17", 181559.03], ["2024-09-18", 182548.11], ["2024-09-19", 187975.11], ["2024-09-20", 188177.82], ["2024-09-23", 188641.34], ["2024-09-24", 194781.76], ["2024-09-25", 192803.99], ["2024-09-26", 190275.63], ["2024-09-27", 190897.78], ["2024-09-30", 191559.15], ["2024-10-01", 191810.42], ["2024-10-02", 192018.16], ["2024-10-03", 192247.1], ["2024-10-04", 192476.09], ["2024-10-07", 193167.48], ["2024-10-08", 191260.4], ["2024-10-09", 192865.13], ["2024-10-10", 188744.81], ["2024-10-11", 187645.25], ["2024-10-14", 187150.17], ["2024-10-15", 187019.68], ["2024-10-16", 190646.37], ["2024-10-17", 188577.82], ["2024-10-18", 185653.34], ["2024-10-21", 186122.36], ["2024-10-22", 183597.88], ["2024-10-23", 179624.49], ["2024-10-24", 179164.1], ["2024-10-25", 179115.29], ["2024-10-28", 179906.73], ["2024-10-30", 180675.73], ["2024-10-31", 177329.06], ["2024-11-01", 177289.46], ["2024-11-04", 176069.91], ["2024-11-05", 176265.01], ["2024-11-06", 177744.06], ["2024-11-07", 178905.38], ["2024-11-08", 190001.88], ["2024-11-11", 193976.68], ["2024-11-12", 192076.68], ["2024-11-13", 192513.74], ["2024-11-14", 193792.24], ["2024-11-15", 190885.29], ["2024-11-18", 190334.11], ["2024-11-19", 186797.63], ["2024-11-20", 186999.11], ["2024-11-21", 190223.16], ["2024-11-22", 199686.39], ["2024-11-25", 203212.95], ["2024-11-26", 200472.42], ["2024-11-27", 200192.32], ["2024-11-28", 200522.4], ["2024-11-29", 198155.11], ["2024-12-02", 199640.32], ["2024-12-03", 202612.57], ["2024-12-04", 201920.09], ["2024-12-05", 201916.81], ["2024-12-06", 203178.06], ["2024-12-09", 206210.39], ["2024-12-10", 201859.69], ["2024-12-11", 201394.94], ["2024-12-12", 201585.83], ["2024-12-13", 201809.98], ["2024-12-16", 200905.09], ["2024-12-17", 200905.25], ["2024-12-18", 199778.4], ["2024-12-19", 198883.42], ["2024-12-20", 199045.69], ["2024-12-23", 200681.23], ["2024-12-24", 201029.07], ["2024-12-25", 205724.42], ["2024-12-26", 204500.32], ["2024-12-27", 204177.41], ["2024-12-30", 203276.18], ["2024-12-31", 200316.85], ["2025-01-02", 201835.29], ["2025-01-03", 201333.43], ["2025-01-06", 202512.19], ["2025-01-07", 201399.46], ["2025-01-08", 201128.39], ["2025-01-09", 202466.1], ["2025-01-10", 198984.29], ["2025-01-13", 199767.92], ["2025-01-14", 200009.82], ["2025-01-15", 200252.17], ["2025-01-16", 197212.73], ["2025-01-17", 201542.4], ["2025-01-20", 202097.36], ["2025-01-21", 201903.16], ["2025-01-22", 204741.88], ["2025-01-23", 203272.92], ["2025-01-24", 204085.33], ["2025-01-27", 203321.41], ["2025-01-28", 205174.7], ["2025-01-29", 202139.15], ["2025-01-30", 200390.92], ["2025-01-31", 199405.44], ["2025-02-03", 199836.57], ["2025-02-04", 200070.66], ["2025-02-05", 200302.38], ["2025-02-06", 199935.69], ["2025-02-07", 201855.65], ["2025-02-10", 199004.54], ["2025-02-11", 198849.51], ["2025-02-12", 198905.46], ["2025-02-13", 199028.85], ["2025-02-14", 198129.25], ["2025-02-17", 198380.25], ["2025-02-18", 199160.9], ["2025-02-19", 196968.56], ["2025-02-20", 197576.74], ["2025-02-21", 196845.42], ["2025-02-24", 197683.46], ["2025-02-25", 197874.25], ["2025-02-26", 198483.98], ["2025-02-27", 203797.93], ["2025-02-28", 202635.6], ["2025-03-03", 216843.81], ["2025-03-04", 216077.38], ["2025-03-05", 225733.69], ["2025-03-06", 230543.68], ["2025-03-07", 228231.91], ["2025-03-10", 226829.87], ["2025-03-11", 227501.28], ["2025-03-12", 231827.35], ["2025-03-13", 232654.6], ["2025-03-14", 233483.92], ["2025-03-17", 232696.3], ["2025-03-18", 231931.12], ["2025-03-19", 228014.43], ["2025-03-20", 228224.67], ["2025-03-21", 228438.92], ["2025-03-24", 229111.29], ["2025-03-25", 234242.94], ["2025-03-26", 225001.67], ["2025-03-27", 223043.95], ["2025-03-28", 222959.62], ["2025-04-02", 222845.74], ["2025-04-03", 222744.91], ["2025-04-04", 222958.42], ["2025-04-07", 223615.92], ["2025-04-08", 220163.02], ["2025-04-09", 211828.66], ["2025-04-10", 206463.83], ["2025-04-11", 205458.74], ["2025-04-14", 203903.16], ["2025-04-15", 203525.63], ["2025-04-16", 203204.32], ["2025-04-17", 199481.23], ["2025-04-18", 200180.55], ["2025-04-21", 193883.12], ["2025-04-22", 194346.29], ["2025-04-24", 199669.27], ["2025-04-25", 196639.49], ["2025-04-28", 196509.07], ["2025-04-29", 196160.52], ["2025-04-30", 196362.61], ["2025-05-02", 197973.78], ["2025-05-05", 197855.81], ["2025-05-06", 196700.39], ["2025-05-07", 198571.25], ["2025-05-08", 201391.99], ["2025-05-09", 201659.68], ["2025-05-12", 210976.62], ["2025-05-13", 211665.34], ["2025-05-14", 212197.58], ["2025-05-15", 209622.87], ["2025-05-16", 210753.99], ["2025-05-20", 211305.89], ["2025-05-21", 211183.7], ["2025-05-22", 211551.64], ["2025-05-23", 211761.48], ["2025-05-26", 212428.12], ["2025-05-27", 212652.16], ["2025-05-28", 212876.49], ["2025-05-29", 213100.99], ["2025-05-30", 213325.69], ["2025-06-02", 214000.48], ["2025-06-03", 219294.92], ["2025-06-04", 222669.74], ["2025-06-05", 222743.18], ["2025-06-10", 230353.78], ["2025-06-11", 229260.32], ["2025-06-12", 225041.37], ["2025-06-13", 221905.42], ["2025-06-16", 222587.42], ["2025-06-17", 221422.98], ["2025-06-18", 219481.13], ["2025-06-19", 219693.01], ["2025-06-20", 219917.08], ["2025-06-23", 220580.92], ["2025-06-24", 218080.73], ["2025-06-25", 218539.83], ["2025-06-26", 214686.25], ["2025-06-27", 212924.5], ["2025-06-30", 248205.95], ["2025-07-01", 249917.41], ["2025-07-02", 257546.14], ["2025-07-03", 257751.4], ["2025-07-04", 258837.43], ["2025-07-07", 249916.82], ["2025-07-08", 251109.19], ["2025-07-09", 251738.99], ["2025-07-10", 259425.64], ["2025-07-11", 258714.74], ["2025-07-14", 258833.82], ["2025-07-16", 261521.14], ["2025-07-17", 265053.7], ["2025-07-18", 261785.71], ["2025-07-21", 274764.93], ["2025-07-22", 273653.84], ["2025-07-23", 274133.95], ["2025-07-24", 274865.53], ["2025-07-25", 273368.39], ["2025-07-28", 272845.13], ["2025-07-29", 272888.28], ["2025-07-30", 273134.7], ["2025-07-31", 274678.55], ["2025-08-01", 276303.17], ["2025-08-04", 281968.62], ["2025-08-05", 279665.15], ["2025-08-06", 280118.84], ["2025-08-07", 280005.01], ["2025-08-08", 279129.37], ["2025-08-11", 278636.12], ["2025-08-12", 276991.47], ["2025-08-13", 276593.42], ["2025-08-14", 274671.21], ["2025-08-15", 274909.04], ["2025-08-18", 275654.22], ["2025-08-19", 274932.37], ["2025-08-20", 282354.18], ["2025-08-21", 286595.1], ["2025-08-22", 287416.25], ["2025-08-25", 288764.83], ["2025-08-26", 287326.49], ["2025-08-27", 286032.41], ["2025-08-28", 286392.45], ["2025-08-29", 286649.58], ["2025-09-01", 285185.98], ["2025-09-02", 276094.61], ["2025-09-03", 276317.0], ["2025-09-04", 276567.61], ["2025-09-05", 276818.39], ["2025-09-08", 277571.2], ["2025-09-09", 277822.11], ["2025-09-10", 280173.49], ["2025-09-11", 273234.73], ["2025-09-12", 273457.73], ["2025-09-15", 297663.75], ["2025-09-16", 302782.35], ["2025-09-17", 302603.26], ["2025-09-18", 297951.38], ["2025-09-19", 301120.04], ["2025-09-22", 309125.78], ["2025-09-23", 306051.69], ["2025-09-24", 300721.6], ["2025-09-25", 301441.19], ["2025-09-26", 297918.94], ["2025-09-29", 297594.43], ["2025-09-30", 297844.16], ["2025-10-01", 302749.92], ["2025-10-02", 287997.71], ["2025-10-03", 280593.13], ["2025-10-06", 281308.74], ["2025-10-07", 281548.8], ["2025-10-08", 281789.13], ["2025-10-09", 282029.75], ["2025-10-10", 282270.35], ["2025-10-13", 282920.58], ["2025-10-14", 283161.12], ["2025-10-15", 283401.56], ["2025-10-16", 283642.56], ["2025-10-17", 283883.76], ["2025-10-20", 292356.31], ["2025-10-21", 296325.91], ["2025-10-22", 301811.02], ["2025-10-23", 296356.6], ["2025-10-24", 314684.83], ["2025-10-27", 308572.56], ["2025-10-28", 304630.92], ["2025-10-30", 301754.45], ["2025-10-31", 301920.52], ["2025-11-03", 308001.16], ["2025-11-04", 302593.33], ["2025-11-05", 293599.3], ["2025-11-06", 294884.66], ["2025-11-07", 286338.9], ["2025-11-10", 281968.62], ["2025-11-12", 282203.27], ["2025-11-13", 282438.04], ["2025-11-14", 282673.08], ["2025-11-17", 281449.05], ["2025-11-18", 277785.88], ["2025-11-19", 287469.16], ["2025-11-20", 290410.59], ["2025-11-21", 283178.58], ["2025-11-24", 281416.41], ["2025-11-25", 278016.9], ["2025-11-26", 280383.47], ["2025-11-27", 282116.99], ["2025-11-28", 278636.39], ["2025-12-01", 291584.99], ["2025-12-02", 285536.15], ["2025-12-03", 280996.19], ["2025-12-04", 277225.2], ["2025-12-05", 277443.85], ["2025-12-08", 278082.9], ["2025-12-09", 281334.84], ["2025-12-10", 272443.21], ["2025-12-11", 268492.61], ["2025-12-12", 270056.86], ["2025-12-15", 274541.44], ["2025-12-16", 270624.12], ["2025-12-17", 270812.54], ["2025-12-18", 271028.95], ["2025-12-19", 271245.43], ["2025-12-22", 270185.03], ["2025-12-23", 268984.51], ["2025-12-24", 267915.3], ["2025-12-25", 263933.07], ["2025-12-26", 262772.74], ["2025-12-29", 263244.52], ["2025-12-30", 263452.17], ["2025-12-31", 263216.14], ["2026-01-02", 279329.81], ["2026-01-05", 285143.26], ["2026-01-06", 298150.13], ["2026-01-07", 294415.82], ["2026-01-08", 291219.27], ["2026-01-09", 295451.93], ["2026-01-12", 296101.3], ["2026-01-13", 298639.62], ["2026-01-14", 295940.2], ["2026-01-15", 298354.33], ["2026-01-16", 306458.36], ["2026-01-19", 315564.34], ["2026-01-20", 317892.13], ["2026-01-21", 317018.86], ["2026-01-22", 305387.72], ["2026-01-23", 299289.41], ["2026-01-26", 304629.24], ["2026-01-27", 299057.67], ["2026-01-28", 304447.55], ["2026-01-29", 325233.83], ["2026-01-30", 328795.44], ["2026-02-02", 310969.65], ["2026-02-03", 321275.96], ["2026-02-04", 318456.52], ["2026-02-05", 311947.18], ["2026-02-06", 310668.78], ["2026-02-09", 313405.91], ["2026-02-10", 307738.57], ["2026-02-11", 306338.4], ["2026-02-12", 326435.37], ["2026-02-13", 324303.89], ["2026-02-16", 325232.09], ["2026-02-17", 318972.32], ["2026-02-18", 316837.99], ["2026-02-19", 313970.22], ["2026-02-20", 315625.11], ["2026-02-23", 314257.19], ["2026-02-24", 310849.33], ["2026-02-25", 305873.8], ["2026-02-26", 306089.49], ["2026-02-27", 301404.87], ["2026-03-02", 303024.92], ["2026-03-03", 301216.89]];
 var MONTHLY_PCT={"2024-01": 32.52, "2024-02": 9.62, "2024-03": 6.42, "2024-04": 6.89, "2024-05": 0.4, "2024-06": 1.82, "2024-07": 7.74, "2024-08": -5.97, "2024-09": 11.93, "2024-10": -7.43, "2024-11": 11.74, "2024-12": 1.09, "2025-01": -0.45, "2025-02": 1.62, "2025-03": 10.03, "2025-04": -11.93, "2025-05": 8.64, "2025-06": 16.35, "2025-07": 10.67, "2025-08": 4.36, "2025-09": 3.91, "2025-10": 1.37, "2025-11": -7.71, "2025-12": -5.53, "2026-01": 24.91, "2026-02": -8.33, "2026-03": -0.06};
 var MONTH_NAMES=["Oca","Sub","Mar","Nis","May","Haz","Tem","Agu","Eyl","Eki","Kas","Ara"];
-
 function exportExcel(){
   var wb=XLSX.utils.book_new();
   var rows=[["Tarih","Bakiye (TL)","Gunluk Degisim %","Kaynak"]];
@@ -2586,14 +2468,12 @@ function exportExcel(){
   XLSX.utils.book_append_sheet(wb,ws2,"Aylik Getiri");
   XLSX.writeFile(wb,"robot_performans_"+new Date().toISOString().slice(0,10)+".xlsx");
 }
-
 async function init(){
   var dbRows=[];
   try{
     var r=await fetch("/api/robot-gunluk");
     dbRows=await r.json();
   }catch(e){}
-
   var liveAvgPct=0;
   try{
     var r2=await fetch("/api/musteriler");
@@ -2604,7 +2484,6 @@ async function init(){
       liveAvgPct=s/data.length;
     }
   }catch(e){}
-
   var extData=DAILY_DATA.slice();
   var lastDbDate=extData[extData.length-1][0];
   for(var i=0;i<dbRows.length;i++){
@@ -2624,7 +2503,6 @@ async function init(){
   window._extData=extData;
   window._liveAvgPct=liveAvgPct;
   window._splitIdx=DAILY_DATA.length;
-
   var ilk=extData[0][1];
   var son=extData[extData.length-1][1];
   var toplamPct=((son/ilk)-1)*100;
@@ -2653,7 +2531,6 @@ async function init(){
   document.getElementById("sSure").textContent=sureStr.trim();
   document.getElementById("sDrawdown").textContent="-"+maxDD.toFixed(1)+"%";
   document.getElementById("sGunluk").textContent=(gort>=0?"+":"")+gort.toFixed(3)+"%";
-
   var labels=extData.map(function(x){return x[0];});
   var values=extData.map(function(x){return x[1];});
   var si=DAILY_DATA.length;
@@ -2663,13 +2540,11 @@ async function init(){
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
       scales:{x:{ticks:{maxTicksLimit:14,callback:function(val,i){return labels[i]?labels[i].slice(0,7):""}},grid:{display:false}},y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}}}
   });
-
   // Aylik getiri: extData'dan dinamik hesapla
   // Her ay icin: o ayin ilk gununun onceki ayin son bakiyesi baz alinir
   var aylikData={};
   // Once MONTHLY_PCT'yi base al (gecmis sabit veriler)
   Object.keys(MONTHLY_PCT).forEach(function(ym){ aylikData[ym]=MONTHLY_PCT[ym]; });
-
   // extData'dan DB+canli gunleri icin son N ayin gercek degerini hesapla
   // extData'daki son 2 ayi dinamik hesapla (DB verileri geldikce daha dogru olur)
   var aylikSon={};
@@ -2694,7 +2569,6 @@ async function init(){
       }
     }
   }
-
   var grid=document.getElementById("monthlyGrid");
   var entries=Object.keys(aylikData).sort();
   for(var q=0;q<entries.length;q++){
@@ -2714,7 +2588,6 @@ init();
 </body>
 </html>`;
 }
-
 function getRobotDetayPage() {
   return `<!DOCTYPE html>
 <html lang="tr">
@@ -2772,7 +2645,6 @@ tr:last-child td{border-bottom:none}
     <tbody id="tableBody"></tbody>
   </table>
 </div>
-
 <!-- Duzenle Modal -->
 <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)closeEdit()">
   <div style="background:#fff;border-radius:12px;padding:24px;max-width:360px;width:90%">
@@ -2791,19 +2663,16 @@ tr:last-child td{border-bottom:none}
     </div>
   </div>
 </div>
-
 <script>
 var DAILY_DATA=[["2024-01-01", 100000.0], ["2024-01-02", 107806.46], ["2024-01-03", 101487.67], ["2024-01-04", 103330.67], ["2024-01-05", 106614.43], ["2024-01-08", 114937.58], ["2024-01-09", 111130.76], ["2024-01-10", 115483.98], ["2024-01-11", 115473.88], ["2024-01-12", 113809.12], ["2024-01-15", 117940.64], ["2024-01-16", 119015.64], ["2024-01-17", 118245.89], ["2024-01-18", 117226.78], ["2024-01-19", 116816.08], ["2024-01-22", 117564.67], ["2024-01-23", 113711.1], ["2024-01-24", 112893.61], ["2024-01-25", 116830.08], ["2024-01-26", 124415.79], ["2024-01-29", 131723.39], ["2024-01-30", 133662.9], ["2024-01-31", 132524.84], ["2024-02-01", 135134.59], ["2024-02-02", 134691.0], ["2024-02-05", 135114.26], ["2024-02-06", 139417.21], ["2024-02-07", 140379.98], ["2024-02-08", 140296.71], ["2024-02-09", 139839.99], ["2024-02-12", 145948.23], ["2024-02-13", 139483.16], ["2024-02-14", 140835.86], ["2024-02-15", 144210.64], ["2024-02-16", 143738.75], ["2024-02-19", 143547.93], ["2024-02-20", 145086.31], ["2024-02-21", 144251.46], ["2024-02-22", 143669.15], ["2024-02-23", 144345.21], ["2024-02-26", 145232.75], ["2024-02-27", 144952.12], ["2024-02-28", 145114.32], ["2024-02-29", 145277.38], ["2024-03-01", 143476.85], ["2024-03-04", 142458.8], ["2024-03-05", 141921.84], ["2024-03-06", 142081.5], ["2024-03-07", 145848.66], ["2024-03-08", 148599.06], ["2024-03-11", 149308.4], ["2024-03-12", 147689.53], ["2024-03-13", 147304.84], ["2024-03-14", 147471.51], ["2024-03-15", 147638.76], ["2024-03-18", 148139.34], ["2024-03-19", 150247.08], ["2024-03-20", 150177.16], ["2024-03-21", 156493.66], ["2024-03-22", 156655.73], ["2024-03-25", 156468.29], ["2024-03-26", 153681.71], ["2024-03-27", 153720.54], ["2024-03-28", 155959.17], ["2024-03-29", 154602.82], ["2024-04-01", 153348.51], ["2024-04-02", 153939.41], ["2024-04-03", 152165.89], ["2024-04-04", 156359.37], ["2024-04-05", 165843.39], ["2024-04-08", 166179.3], ["2024-04-09", 166769.76], ["2024-04-15", 164085.21], ["2024-04-16", 161893.29], ["2024-04-17", 157182.62], ["2024-04-18", 157375.83], ["2024-04-19", 163006.39], ["2024-04-22", 159104.53], ["2024-04-24", 160684.36], ["2024-04-25", 157871.37], ["2024-04-26", 161259.63], ["2024-04-29", 167716.83], ["2024-04-30", 165248.47], ["2024-05-02", 167227.23], ["2024-05-03", 166297.04], ["2024-05-06", 164845.04], ["2024-05-07", 165905.38], ["2024-05-08", 162269.63], ["2024-05-09", 162196.27], ["2024-05-10", 159761.14], ["2024-05-13", 159636.07], ["2024-05-14", 157522.3], ["2024-05-15", 155207.37], ["2024-05-16", 157707.63], ["2024-05-17", 169037.93], ["2024-05-20", 173803.55], ["2024-05-21", 181542.98], ["2024-05-22", 177819.85], ["2024-05-23", 171581.58], ["2024-05-24", 170031.71], ["2024-05-27", 170584.49], ["2024-05-28", 170791.18], ["2024-05-29", 171018.13], ["2024-05-30", 171226.86], ["2024-05-31", 165911.42], ["2024-06-03", 165703.0], ["2024-06-04", 160735.29], ["2024-06-05", 161725.53], ["2024-06-06", 160950.67], ["2024-06-07", 161215.57], ["2024-06-10", 161789.38], ["2024-06-11", 161999.22], ["2024-06-12", 163051.18], ["2024-06-13", 165253.29], ["2024-06-14", 166343.95], ["2024-06-20", 169820.84], ["2024-06-21", 170362.78], ["2024-06-24", 170097.2], ["2024-06-25", 168108.28], ["2024-06-26", 167956.05], ["2024-06-27", 168499.86], ["2024-06-28", 168936.37], ["2024-07-01", 166624.84], ["2024-07-02", 166710.02], ["2024-07-03", 176374.8], ["2024-07-04", 179830.14], ["2024-07-05", 179089.19], ["2024-07-08", 178613.59], ["2024-07-09", 177252.17], ["2024-07-10", 177535.91], ["2024-07-11", 180578.35], ["2024-07-12", 180712.14], ["2024-07-16", 184260.44], ["2024-07-17", 183080.91], ["2024-07-18", 182353.63], ["2024-07-19", 181822.81], ["2024-07-22", 181474.64], ["2024-07-23", 180503.4], ["2024-07-24", 180547.04], ["2024-07-25", 180763.56], ["2024-07-26", 180975.13], ["2024-07-29", 181603.79], ["2024-07-30", 181812.55], ["2024-07-31", 182018.4], ["2024-08-01", 184692.5], ["2024-08-02", 180249.59], ["2024-08-05", 179263.61], ["2024-08-06", 179481.22], ["2024-08-07", 179701.21], ["2024-08-08", 180188.52], ["2024-08-09", 178033.64], ["2024-08-12", 176828.93], ["2024-08-13", 176777.61], ["2024-08-14", 171742.5], ["2024-08-15", 173954.59], ["2024-08-16", 168515.92], ["2024-08-19", 172714.42], ["2024-08-20", 172686.16], ["2024-08-21", 171718.76], ["2024-08-22", 172600.18], ["2024-08-23", 170950.95], ["2024-08-26", 171568.91], ["2024-08-27", 172107.51], ["2024-08-28", 170047.8], ["2024-08-29", 171148.11], ["2024-09-02", 178887.04], ["2024-09-03", 177190.69], ["2024-09-04", 176595.42], ["2024-09-05", 176686.33], ["2024-09-06", 176541.41], ["2024-09-09", 177197.55], ["2024-09-10", 177417.71], ["2024-09-11", 177636.23], ["2024-09-12", 177854.36], ["2024-09-13", 179841.04], ["2024-09-16", 178024.38], ["2024-09-17", 181559.03], ["2024-09-18", 182548.11], ["2024-09-19", 187975.11], ["2024-09-20", 188177.82], ["2024-09-23", 188641.34], ["2024-09-24", 194781.76], ["2024-09-25", 192803.99], ["2024-09-26", 190275.63], ["2024-09-27", 190897.78], ["2024-09-30", 191559.15], ["2024-10-01", 191810.42], ["2024-10-02", 192018.16], ["2024-10-03", 192247.1], ["2024-10-04", 192476.09], ["2024-10-07", 193167.48], ["2024-10-08", 191260.4], ["2024-10-09", 192865.13], ["2024-10-10", 188744.81], ["2024-10-11", 187645.25], ["2024-10-14", 187150.17], ["2024-10-15", 187019.68], ["2024-10-16", 190646.37], ["2024-10-17", 188577.82], ["2024-10-18", 185653.34], ["2024-10-21", 186122.36], ["2024-10-22", 183597.88], ["2024-10-23", 179624.49], ["2024-10-24", 179164.1], ["2024-10-25", 179115.29], ["2024-10-28", 179906.73], ["2024-10-30", 180675.73], ["2024-10-31", 177329.06], ["2024-11-01", 177289.46], ["2024-11-04", 176069.91], ["2024-11-05", 176265.01], ["2024-11-06", 177744.06], ["2024-11-07", 178905.38], ["2024-11-08", 190001.88], ["2024-11-11", 193976.68], ["2024-11-12", 192076.68], ["2024-11-13", 192513.74], ["2024-11-14", 193792.24], ["2024-11-15", 190885.29], ["2024-11-18", 190334.11], ["2024-11-19", 186797.63], ["2024-11-20", 186999.11], ["2024-11-21", 190223.16], ["2024-11-22", 199686.39], ["2024-11-25", 203212.95], ["2024-11-26", 200472.42], ["2024-11-27", 200192.32], ["2024-11-28", 200522.4], ["2024-11-29", 198155.11], ["2024-12-02", 199640.32], ["2024-12-03", 202612.57], ["2024-12-04", 201920.09], ["2024-12-05", 201916.81], ["2024-12-06", 203178.06], ["2024-12-09", 206210.39], ["2024-12-10", 201859.69], ["2024-12-11", 201394.94], ["2024-12-12", 201585.83], ["2024-12-13", 201809.98], ["2024-12-16", 200905.09], ["2024-12-17", 200905.25], ["2024-12-18", 199778.4], ["2024-12-19", 198883.42], ["2024-12-20", 199045.69], ["2024-12-23", 200681.23], ["2024-12-24", 201029.07], ["2024-12-25", 205724.42], ["2024-12-26", 204500.32], ["2024-12-27", 204177.41], ["2024-12-30", 203276.18], ["2024-12-31", 200316.85], ["2025-01-02", 201835.29], ["2025-01-03", 201333.43], ["2025-01-06", 202512.19], ["2025-01-07", 201399.46], ["2025-01-08", 201128.39], ["2025-01-09", 202466.1], ["2025-01-10", 198984.29], ["2025-01-13", 199767.92], ["2025-01-14", 200009.82], ["2025-01-15", 200252.17], ["2025-01-16", 197212.73], ["2025-01-17", 201542.4], ["2025-01-20", 202097.36], ["2025-01-21", 201903.16], ["2025-01-22", 204741.88], ["2025-01-23", 203272.92], ["2025-01-24", 204085.33], ["2025-01-27", 203321.41], ["2025-01-28", 205174.7], ["2025-01-29", 202139.15], ["2025-01-30", 200390.92], ["2025-01-31", 199405.44], ["2025-02-03", 199836.57], ["2025-02-04", 200070.66], ["2025-02-05", 200302.38], ["2025-02-06", 199935.69], ["2025-02-07", 201855.65], ["2025-02-10", 199004.54], ["2025-02-11", 198849.51], ["2025-02-12", 198905.46], ["2025-02-13", 199028.85], ["2025-02-14", 198129.25], ["2025-02-17", 198380.25], ["2025-02-18", 199160.9], ["2025-02-19", 196968.56], ["2025-02-20", 197576.74], ["2025-02-21", 196845.42], ["2025-02-24", 197683.46], ["2025-02-25", 197874.25], ["2025-02-26", 198483.98], ["2025-02-27", 203797.93], ["2025-02-28", 202635.6], ["2025-03-03", 216843.81], ["2025-03-04", 216077.38], ["2025-03-05", 225733.69], ["2025-03-06", 230543.68], ["2025-03-07", 228231.91], ["2025-03-10", 226829.87], ["2025-03-11", 227501.28], ["2025-03-12", 231827.35], ["2025-03-13", 232654.6], ["2025-03-14", 233483.92], ["2025-03-17", 232696.3], ["2025-03-18", 231931.12], ["2025-03-19", 228014.43], ["2025-03-20", 228224.67], ["2025-03-21", 228438.92], ["2025-03-24", 229111.29], ["2025-03-25", 234242.94], ["2025-03-26", 225001.67], ["2025-03-27", 223043.95], ["2025-03-28", 222959.62], ["2025-04-02", 222845.74], ["2025-04-03", 222744.91], ["2025-04-04", 222958.42], ["2025-04-07", 223615.92], ["2025-04-08", 220163.02], ["2025-04-09", 211828.66], ["2025-04-10", 206463.83], ["2025-04-11", 205458.74], ["2025-04-14", 203903.16], ["2025-04-15", 203525.63], ["2025-04-16", 203204.32], ["2025-04-17", 199481.23], ["2025-04-18", 200180.55], ["2025-04-21", 193883.12], ["2025-04-22", 194346.29], ["2025-04-24", 199669.27], ["2025-04-25", 196639.49], ["2025-04-28", 196509.07], ["2025-04-29", 196160.52], ["2025-04-30", 196362.61], ["2025-05-02", 197973.78], ["2025-05-05", 197855.81], ["2025-05-06", 196700.39], ["2025-05-07", 198571.25], ["2025-05-08", 201391.99], ["2025-05-09", 201659.68], ["2025-05-12", 210976.62], ["2025-05-13", 211665.34], ["2025-05-14", 212197.58], ["2025-05-15", 209622.87], ["2025-05-16", 210753.99], ["2025-05-20", 211305.89], ["2025-05-21", 211183.7], ["2025-05-22", 211551.64], ["2025-05-23", 211761.48], ["2025-05-26", 212428.12], ["2025-05-27", 212652.16], ["2025-05-28", 212876.49], ["2025-05-29", 213100.99], ["2025-05-30", 213325.69], ["2025-06-02", 214000.48], ["2025-06-03", 219294.92], ["2025-06-04", 222669.74], ["2025-06-05", 222743.18], ["2025-06-10", 230353.78], ["2025-06-11", 229260.32], ["2025-06-12", 225041.37], ["2025-06-13", 221905.42], ["2025-06-16", 222587.42], ["2025-06-17", 221422.98], ["2025-06-18", 219481.13], ["2025-06-19", 219693.01], ["2025-06-20", 219917.08], ["2025-06-23", 220580.92], ["2025-06-24", 218080.73], ["2025-06-25", 218539.83], ["2025-06-26", 214686.25], ["2025-06-27", 212924.5], ["2025-06-30", 248205.95], ["2025-07-01", 249917.41], ["2025-07-02", 257546.14], ["2025-07-03", 257751.4], ["2025-07-04", 258837.43], ["2025-07-07", 249916.82], ["2025-07-08", 251109.19], ["2025-07-09", 251738.99], ["2025-07-10", 259425.64], ["2025-07-11", 258714.74], ["2025-07-14", 258833.82], ["2025-07-16", 261521.14], ["2025-07-17", 265053.7], ["2025-07-18", 261785.71], ["2025-07-21", 274764.93], ["2025-07-22", 273653.84], ["2025-07-23", 274133.95], ["2025-07-24", 274865.53], ["2025-07-25", 273368.39], ["2025-07-28", 272845.13], ["2025-07-29", 272888.28], ["2025-07-30", 273134.7], ["2025-07-31", 274678.55], ["2025-08-01", 276303.17], ["2025-08-04", 281968.62], ["2025-08-05", 279665.15], ["2025-08-06", 280118.84], ["2025-08-07", 280005.01], ["2025-08-08", 279129.37], ["2025-08-11", 278636.12], ["2025-08-12", 276991.47], ["2025-08-13", 276593.42], ["2025-08-14", 274671.21], ["2025-08-15", 274909.04], ["2025-08-18", 275654.22], ["2025-08-19", 274932.37], ["2025-08-20", 282354.18], ["2025-08-21", 286595.1], ["2025-08-22", 287416.25], ["2025-08-25", 288764.83], ["2025-08-26", 287326.49], ["2025-08-27", 286032.41], ["2025-08-28", 286392.45], ["2025-08-29", 286649.58], ["2025-09-01", 285185.98], ["2025-09-02", 276094.61], ["2025-09-03", 276317.0], ["2025-09-04", 276567.61], ["2025-09-05", 276818.39], ["2025-09-08", 277571.2], ["2025-09-09", 277822.11], ["2025-09-10", 280173.49], ["2025-09-11", 273234.73], ["2025-09-12", 273457.73], ["2025-09-15", 297663.75], ["2025-09-16", 302782.35], ["2025-09-17", 302603.26], ["2025-09-18", 297951.38], ["2025-09-19", 301120.04], ["2025-09-22", 309125.78], ["2025-09-23", 306051.69], ["2025-09-24", 300721.6], ["2025-09-25", 301441.19], ["2025-09-26", 297918.94], ["2025-09-29", 297594.43], ["2025-09-30", 297844.16], ["2025-10-01", 302749.92], ["2025-10-02", 287997.71], ["2025-10-03", 280593.13], ["2025-10-06", 281308.74], ["2025-10-07", 281548.8], ["2025-10-08", 281789.13], ["2025-10-09", 282029.75], ["2025-10-10", 282270.35], ["2025-10-13", 282920.58], ["2025-10-14", 283161.12], ["2025-10-15", 283401.56], ["2025-10-16", 283642.56], ["2025-10-17", 283883.76], ["2025-10-20", 292356.31], ["2025-10-21", 296325.91], ["2025-10-22", 301811.02], ["2025-10-23", 296356.6], ["2025-10-24", 314684.83], ["2025-10-27", 308572.56], ["2025-10-28", 304630.92], ["2025-10-30", 301754.45], ["2025-10-31", 301920.52], ["2025-11-03", 308001.16], ["2025-11-04", 302593.33], ["2025-11-05", 293599.3], ["2025-11-06", 294884.66], ["2025-11-07", 286338.9], ["2025-11-10", 281968.62], ["2025-11-12", 282203.27], ["2025-11-13", 282438.04], ["2025-11-14", 282673.08], ["2025-11-17", 281449.05], ["2025-11-18", 277785.88], ["2025-11-19", 287469.16], ["2025-11-20", 290410.59], ["2025-11-21", 283178.58], ["2025-11-24", 281416.41], ["2025-11-25", 278016.9], ["2025-11-26", 280383.47], ["2025-11-27", 282116.99], ["2025-11-28", 278636.39], ["2025-12-01", 291584.99], ["2025-12-02", 285536.15], ["2025-12-03", 280996.19], ["2025-12-04", 277225.2], ["2025-12-05", 277443.85], ["2025-12-08", 278082.9], ["2025-12-09", 281334.84], ["2025-12-10", 272443.21], ["2025-12-11", 268492.61], ["2025-12-12", 270056.86], ["2025-12-15", 274541.44], ["2025-12-16", 270624.12], ["2025-12-17", 270812.54], ["2025-12-18", 271028.95], ["2025-12-19", 271245.43], ["2025-12-22", 270185.03], ["2025-12-23", 268984.51], ["2025-12-24", 267915.3], ["2025-12-25", 263933.07], ["2025-12-26", 262772.74], ["2025-12-29", 263244.52], ["2025-12-30", 263452.17], ["2025-12-31", 263216.14], ["2026-01-02", 279329.81], ["2026-01-05", 285143.26], ["2026-01-06", 298150.13], ["2026-01-07", 294415.82], ["2026-01-08", 291219.27], ["2026-01-09", 295451.93], ["2026-01-12", 296101.3], ["2026-01-13", 298639.62], ["2026-01-14", 295940.2], ["2026-01-15", 298354.33], ["2026-01-16", 306458.36], ["2026-01-19", 315564.34], ["2026-01-20", 317892.13], ["2026-01-21", 317018.86], ["2026-01-22", 305387.72], ["2026-01-23", 299289.41], ["2026-01-26", 304629.24], ["2026-01-27", 299057.67], ["2026-01-28", 304447.55], ["2026-01-29", 325233.83], ["2026-01-30", 328795.44], ["2026-02-02", 310969.65], ["2026-02-03", 321275.96], ["2026-02-04", 318456.52], ["2026-02-05", 311947.18], ["2026-02-06", 310668.78], ["2026-02-09", 313405.91], ["2026-02-10", 307738.57], ["2026-02-11", 306338.4], ["2026-02-12", 326435.37], ["2026-02-13", 324303.89], ["2026-02-16", 325232.09], ["2026-02-17", 318972.32], ["2026-02-18", 316837.99], ["2026-02-19", 313970.22], ["2026-02-20", 315625.11], ["2026-02-23", 314257.19], ["2026-02-24", 310849.33], ["2026-02-25", 305873.8], ["2026-02-26", 306089.49], ["2026-02-27", 301404.87], ["2026-03-02", 303024.92], ["2026-03-03", 301216.89]];
 var splitIdx=DAILY_DATA.length;
 var _editTarih=null;
-
 async function init(){
   var dbRows=[];
   try{
     var r=await fetch("/api/robot-gunluk");
     dbRows=await r.json();
   }catch(e){}
-
   var liveAvgPct=0;
   try{
     var r2=await fetch("/api/musteriler");
@@ -2814,7 +2683,6 @@ async function init(){
       liveAvgPct=s/data.length;
     }
   }catch(e){}
-
   var extData=DAILY_DATA.slice();
   var lastDbDate=extData[extData.length-1][0];
   for(var i=0;i<dbRows.length;i++){
@@ -2831,7 +2699,6 @@ async function init(){
     var lastB=extData[extData.length-1][1];
     extData.push([todayStr,Math.round(lastB*(1+liveAvgPct/100)*100)/100,liveAvgPct,'canli']);
   }
-
   var fmt=function(n){return new Intl.NumberFormat('tr-TR').format(Math.round(n));};
   var sum=0,maxPct=-Infinity,minPct=Infinity,count=0;
   for(var i=1;i<extData.length;i++){
@@ -2845,7 +2712,6 @@ async function init(){
   document.getElementById('sMax').textContent='+'+maxPct.toFixed(3)+'%';
   document.getElementById('sMin').textContent=minPct.toFixed(3)+'%';
   document.getElementById('sGunSayisi').textContent=(extData.length-1)+' gun';
-
   var html='';
   for(var j=extData.length-1;j>=1;j--){
     var pct2=(extData[j][1]/extData[j-1][1]-1)*100;
@@ -2860,7 +2726,6 @@ async function init(){
   }
   document.getElementById('tableBody').innerHTML=html;
 }
-
 function openEdit(tarih, mevcutPct){
   _editTarih=tarih;
   document.getElementById('editTarihLabel').textContent=tarih+' tarihli kayit';
@@ -2868,12 +2733,10 @@ function openEdit(tarih, mevcutPct){
   document.getElementById('editModal').style.display='flex';
   document.getElementById('editPctInput').focus();
 }
-
 function closeEdit(){
   document.getElementById('editModal').style.display='none';
   _editTarih=null;
 }
-
 async function saveEdit(){
   if(!_editTarih) return;
   var pct=parseFloat(document.getElementById('editPctInput').value);
@@ -2893,17 +2756,14 @@ async function saveEdit(){
     }
   }catch(e){alert('Baglanti hatasi');}
 }
-
 init();
 </script>
 </body>
 </html>`;
 }
-
 // =====================================================
 // SINYAL SISTEMI API
 // =====================================================
-
 // TradingView webhook'tan sinyal al (POST)
 app.post('/api/sinyal', async (req, res) => {
   try {
@@ -2919,7 +2779,6 @@ app.post('/api/sinyal', async (req, res) => {
     res.json({ ok: true });
   } catch (err) { console.error('Sinyal kayit hatasi:', err.message); res.status(500).json({ error: err.message }); }
 });
-
 // Musteri EA sinyal okur (GET)
 app.get('/api/sinyal', async (req, res) => {
   try {
@@ -2936,7 +2795,6 @@ app.get('/api/sinyal', async (req, res) => {
     res.json({ hisse: row.hisse, barTime: row.bar_time, sideBuy: effectiveSideBuy, skor: parseFloat(row.skor), smaUstunde: row.sma_ustunde, smaAltinda: row.sma_altinda, updatedAt: row.updated_at, overrideMode: row.override_mode });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // Sinyal + musteri pozisyon karsilastirmasi
 // === MANUEL OVERRIDE ===
 app.post('/api/sinyal-override', async (req, res) => {
@@ -2948,7 +2806,6 @@ app.post('/api/sinyal-override', async (req, res) => {
     res.json({ ok: true, hisse: hisse.toUpperCase(), mode });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 app.get('/api/sinyal-durum', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   try {
@@ -2958,13 +2815,12 @@ app.get('/api/sinyal-durum', async (req, res) => {
     res.json({ sinyaller: sinyalResult.rows, musteriler: musteriResult.rows, pozisyon_detay: pozDetayResult.rows });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // BildirimBot'tan hisse bazli pozisyon detayi al (POST)
 app.post('/api/pozisyon-detay', async (req, res) => {
   try {
     const { hesap_no, pozisyonlar } = req.body;
     if (!hesap_no || !pozisyonlar) return res.status(400).json({ error: 'hesap_no ve pozisyonlar zorunlu' });
-    
+
     for (const [hisse, yon] of Object.entries(pozisyonlar)) {
       await pool.query(`
         INSERT INTO musteri_pozisyonlar (hesap_no, hisse, yon, updated_at)
@@ -2972,11 +2828,10 @@ app.post('/api/pozisyon-detay', async (req, res) => {
         ON CONFLICT (hesap_no, hisse) DO UPDATE SET yon = $3, updated_at = NOW()
       `, [hesap_no, hisse.toUpperCase(), yon]);
     }
-    
+
     res.json({ ok: true });
   } catch (err) { console.error('Pozisyon detay hatasi:', err.message); res.status(500).json({ error: err.message }); }
 });
-
 // Tek musteri pozisyon detayi (GET)
 app.get('/api/pozisyon-detay', async (req, res) => {
   try {
@@ -2989,10 +2844,8 @@ app.get('/api/pozisyon-detay', async (req, res) => {
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // Sinyaller sayfasi
 app.get('/sinyaller', robotAuth, (req, res) => { res.send(getSinyallerPage()); });
-
 function getSinyallerPage() {
   return `<!DOCTYPE html>
 <html lang="tr">
@@ -3119,19 +2972,16 @@ function render(){
   if(!sinyalData.length){gh='<div class="empty-state" style="grid-column:1/-1">Henuz sinyal gelmedi. Test alani ile manuel gonderebilirsiniz.</div>';}
   else{sinyalData.forEach(function(s){var sb=parseInt(s.side_buy);var bay=isBayat(s.updated_at);var om=s.override_mode||'TV';var effectiveSb=om==='AL'?1:om==='SAT'?-1:om==='NAKIT'?0:sb;var isOverride=om!=='TV';gh+='<div class="sinyal-card" style="position:relative'+(isOverride?';border:2px solid #f59e0b':'')+'"><div style="position:absolute;top:6px;right:6px"><select class="override-sel" data-hisse="'+s.hisse+'" onchange="setOverride(this)" style="background:#1e293b;color:'+(isOverride?'#f59e0b':'#64748b')+';border:1px solid '+(isOverride?'#f59e0b':'#334155')+';border-radius:4px;font-size:0.65rem;padding:2px 4px;cursor:pointer"><option value="TV"'+(om==='TV'?' selected':'')+'>TV</option><option value="AL"'+(om==='AL'?' selected':'')+'>AL</option><option value="SAT"'+(om==='SAT'?' selected':'')+'>SAT</option><option value="NAKIT"'+(om==='NAKIT'?' selected':'')+'>NAKIT</option></select></div><div class="sinyal-hisse">'+s.hisse+(isOverride?' ⚠️':'')+'</div><div class="sinyal-yon '+yonCls(effectiveSb)+'">'+yonStr(effectiveSb)+'</div><div class="sinyal-skor">Skor: '+(parseFloat(s.skor)||0).toFixed(1)+'</div><div class="sinyal-time">Bar: '+(s.bar_time||'-')+(bay?' <span class="pulse" style="color:#ef4444">BAYAT</span>':'')+'</div><div class="sinyal-time">'+tSince(s.updated_at)+' once</div>'+(isOverride?'<div class="sinyal-time" style="color:#f59e0b;font-weight:600">MANUEL: '+om+'</div>':'')+'</div>';});}
   document.getElementById('sinyalGrid').innerHTML=gh;
-
   // === HİSSE BAZLI UYUMSUZLUK KONTROLÜ ===
   // Sinyal haritası: {GARAN: "AL", THYAO: "NAKIT", ...}
   var sinyalMap={};
   sinyalData.forEach(function(s){var om=s.override_mode||'TV';var sb=om==='AL'?1:om==='SAT'?-1:om==='NAKIT'?0:parseInt(s.side_buy);sinyalMap[s.hisse]=sinyalYon(sb);});
-
   // Müşteri pozisyon detay haritası: {hesap_no: {GARAN: "AL", THYAO: "NAKIT"}}
   var musteriPozMap={};
   pozDetayData.forEach(function(p){
     if(!musteriPozMap[p.hesap_no]) musteriPozMap[p.hesap_no]={};
     musteriPozMap[p.hesap_no][p.hisse]=p.yon;
   });
-
   // Uyumsuzluk tespiti
   var uys=[];
   musteriData.forEach(function(m){
@@ -3150,7 +3000,6 @@ function render(){
       uys.push({isim:m.isim||hesap,hesap:hesap,farklar:farklar,son:m.son_guncelleme});
     }
   });
-
   document.getElementById('sUyumsuz').textContent=uys.length;document.getElementById('uyumsuzBadge').textContent=uys.length;
   if(!uys.length){document.getElementById('uyumsuzBody').innerHTML='<div class="empty-state" style="color:#22c55e">Tum musteriler uyumlu</div>';}
   else{
@@ -3176,7 +3025,6 @@ loadAll();setInterval(loadAll,15000);
 </body>
 </html>`;
 }
-
 // =====================================================
 // LOT SISTEMI SAYFASI
 // =====================================================
@@ -3273,7 +3121,6 @@ tr:hover{background:rgba(255,255,255,0.02)}
     </table>
   </div>
 </div>
-
 <div class="modal" id="editModal" onclick="if(event.target===this)closeModal()">
   <div class="modal-box">
     <h3 id="modalTitle">Manuel Düzenle</h3>
@@ -3293,13 +3140,11 @@ tr:hover{background:rgba(255,255,255,0.02)}
     </div>
   </div>
 </div>
-
 <script>
 var data=[];
 function fmt(n){return new Intl.NumberFormat('tr-TR').format(Math.round(parseFloat(n)||0));}
 function fmtDate(d){if(!d)return'-';var dt=new Date(d);return dt.toLocaleString('tr-TR');}
 function tSince(dt){if(!dt)return'-';var d=Math.round((Date.now()-new Date(dt).getTime())/1000);if(d<60)return d+' sn';if(d<3600)return Math.floor(d/60)+' dk';if(d<86400)return Math.floor(d/3600)+' saat';return Math.floor(d/86400)+' gün';}
-
 async function load(){
   try{
     var r=await fetch('/api/lot-list');
@@ -3307,25 +3152,24 @@ async function load(){
     render();
   }catch(e){console.error(e);}
 }
-
 function render(){
   var q=(document.getElementById('searchInput').value||'').toLowerCase();
   var filtered=q?data.filter(function(d){return (d.isim||'').toLowerCase().includes(q)||(d.hesap_no||'').toString().includes(q);}):data;
-  
+
   var otomatik=data.filter(function(d){return !d.override;}).length;
   var manuel=data.filter(function(d){return d.override;}).length;
   var toplamPara=data.reduce(function(s,d){return s+(parseFloat(d.baslangic_parasi)||0);},0);
-  
+
   document.getElementById('sToplam').textContent=data.length;
   document.getElementById('sOtomatik').textContent=otomatik;
   document.getElementById('sManuel').textContent=manuel;
   document.getElementById('sToplamPara').textContent=fmt(toplamPara);
-  
+
   if(filtered.length===0){
     document.getElementById('tbody').innerHTML='<tr><td colspan="7" style="text-align:center;padding:30px;color:#475569">Sonuç bulunamadı</td></tr>';
     return;
   }
-  
+
   var html='';
   filtered.forEach(function(d){
     var rowCls=d.override?'override-row':'';
@@ -3334,7 +3178,7 @@ function render(){
       :'<span class="badge-mod badge-otomatik">OTOMATİK</span>';
     var resetBtn=d.override?'<button class="action-btn gray" onclick="resetOverride(\\''+d.hesap_no+'\\')">↺ Otomatiğe Al</button>':'';
     var isim=(d.isim||('#'+d.hesap_no));
-    
+
     html+='<tr class="'+rowCls+'">';
     html+='<td><strong style="color:#e2e8f0">'+isim+'</strong><br><small style="color:#475569">#'+d.hesap_no+'</small></td>';
     html+='<td><strong style="color:#e2e8f0">'+fmt(d.baslangic_parasi)+'</strong> <span style="color:#64748b;font-size:0.7rem">TL</span></td>';
@@ -3342,12 +3186,12 @@ function render(){
     html+='<td>'+modBadge+'</td>';
     html+='<td style="color:#64748b;font-size:0.75rem">'+tSince(d.son_guncelleme)+' önce</td>';
     html+='<td style="color:#64748b;font-size:0.75rem">'+(d.son_guncelleyen||'-')+'</td>';
-    html+='<td><button class="action-btn warn" onclick="duzenle(\\''+d.hesap_no+'\\')">✏️ Düzenle</button>'+resetBtn+'</td>';
+    var silBtn=(d.aktif!==true)?'<button class="action-btn" style="background:#dc2626;color:#fff;margin-left:4px" onclick="lotSil(\\''+d.hesap_no+'\\')">🗑 Sil</button>':'';
+    html+='<td><button class="action-btn warn" onclick="duzenle(\\''+d.hesap_no+'\\')">✏️ Düzenle</button>'+resetBtn+silBtn+'</td>';
     html+='</tr>';
   });
   document.getElementById('tbody').innerHTML=html;
 }
-
 function yeniEkle(){
   document.getElementById('editMode').value='new';
   document.getElementById('hesapNoRow').style.display='block';
@@ -3360,7 +3204,22 @@ function yeniEkle(){
   document.getElementById('editTarih').value=iso;
   document.getElementById('editModal').classList.add('show');
 }
-
+async function lotSil(hesap_no){
+  var d=data.find(function(x){return x.hesap_no===hesap_no;});
+  if(!d)return;
+  if(d.aktif===true){
+    alert('Aktif müşterinin lot kaydı bu sayfadan silinemez. Müşteri kaydını silmek için Müşteriler sayfasını kullan.');
+    return;
+  }
+  var isim=d.isim||'#'+hesap_no;
+  if(!confirm('Yetim lot kaydını silmek istediğine emin misin?\\n\\n'+isim+' müşteri kayıt defterinde yok.\\nSadece lot_referans ve musteri_pozisyonlar tablolarından silinir.'))return;
+  try{
+    var r=await fetch('/api/lot/'+hesap_no,{method:'DELETE'});
+    var dd=await r.json();
+    if(dd.ok){load();}
+    else{alert('Hata: '+(dd.error||'bilinmeyen'));}
+  }catch(e){alert('Bağlantı hatası');}
+}
 function duzenle(hesap_no){
   var d=data.find(function(x){return x.hesap_no===hesap_no;});
   if(!d)return;
@@ -3374,9 +3233,7 @@ function duzenle(hesap_no){
   document.getElementById('editTarih').value=iso;
   document.getElementById('editModal').classList.add('show');
 }
-
 function closeModal(){document.getElementById('editModal').classList.remove('show');}
-
 async function kaydet(){
   var mode=document.getElementById('editMode').value;
   var hesap_no;
@@ -3394,13 +3251,13 @@ async function kaydet(){
   var para=parseFloat(document.getElementById('editPara').value);
   var tarih=document.getElementById('editTarih').value;
   if(!para||para<=0){alert('Geçerli para girin');return;}
-  
+
   var mesaj=mode==='new'
     ? 'Yeni lot kaydı oluşturulacak: #'+hesap_no+' = '+fmt(para)+' TL\\n\\nMod MANUEL olacak. Devam edilsin mi?'
     : 'Bu müşterinin başlangıç parasını '+fmt(para)+' TL olarak MANUEL ayarlamak istediğine emin misin?\\n\\nMod MANUEL olacak. Bir sonraki vade taşımasında otomatiğe dönmez — sen "Otomatiğe Al" butonuna basana kadar bu değer kullanılır.';
-  
+
   if(!confirm(mesaj))return;
-  
+
   try{
     var r=await fetch('/api/lot-override',{
       method:'POST',
@@ -3411,7 +3268,6 @@ async function kaydet(){
     if(d.ok){closeModal();load();}else{alert('Hata: '+(d.error||'bilinmeyen'));}
   }catch(e){alert('Bağlantı hatası');}
 }
-
 async function resetOverride(hesap_no){
   if(!confirm('Bu müşterinin manuel ayarını kaldırmak istediğine emin misin?\\n\\nBir sonraki vade taşımasında robot otomatik güncelleyecek.'))return;
   try{
@@ -3424,12 +3280,10 @@ async function resetOverride(hesap_no){
     if(d.ok)load();else alert('Hata');
   }catch(e){alert('Bağlantı hatası');}
 }
-
 load();
 setInterval(load,30000);
 </script>
 </body>
 </html>`;
 }
-
 app.listen(PORT, () => console.log('Server port ' + PORT));
