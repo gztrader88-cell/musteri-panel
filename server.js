@@ -23,6 +23,26 @@ const pool = new Pool({
 });
 const MARKET_START = 9.5;
 const MARKET_END = 18;
+// === HEARTBEAT TELEGRAM AYARLARI ===
+// EA'daki TelegramBotToken ve ChatIdDisconnect ile birebir aynı değerler.
+// Bot ölü olduğunda EA Telegram'a yazamaz; bu yüzden panel onun yerine yazar.
+const HB_BOT_TOKEN = '5604456888:AAH3y2t7mBHuZjJNwcqR468mQv7y05-Aoeo';
+const HB_CHAT_ID   = '-4871475251'; // ChatIdDisconnect grubu
+
+// Telegram'a düz metin gönderici (panel kullanır)
+async function sendTelegramAlert(text) {
+  try {
+    const url = 'https://api.telegram.org/bot' + HB_BOT_TOKEN + '/sendMessage';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: HB_CHAT_ID, text: text })
+    });
+    if (!res.ok) console.log('Telegram alert HTTP', res.status);
+  } catch (err) {
+    console.log('Telegram alert hatasi:', err.message);
+  }
+}
 async function initDB() {
   try {
     await pool.query(`
@@ -121,6 +141,23 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+   // === HEARTBEAT TABLOLARI ===
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS heartbeats (
+        hesap_no VARCHAR(50) PRIMARY KEY,
+        isim VARCHAR(100),
+        son_heartbeat TIMESTAMP DEFAULT NOW(),
+        son_durum VARCHAR(20) DEFAULT 'aktif'
+      )
+    `);
+    await pool.query(`ALTER TABLE heartbeats ADD COLUMN IF NOT EXISTS son_durum VARCHAR(20) DEFAULT 'aktif'`).catch(() => {});
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS heartbeat_alarms (
+        hesap_no VARCHAR(50) PRIMARY KEY,
+        alert_sent_at TIMESTAMP,
+        son_isim VARCHAR(100)
+      )
+    `); 
     // === SINYAL SISTEMI: Sinyaller tablosu ===
     await pool.query(`
       CREATE TABLE IF NOT EXISTS sinyaller (
@@ -804,6 +841,108 @@ app.get('/api/kopukluklar', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// =====================================================
+// HEARTBEAT API
+// =====================================================
+// EA'dan gelir, her 5dk'da bir (XX:02, XX:07, XX:12, ...)
+// durum: "aktif" (broker bağlı) veya "terminal_kopuk" (broker yok, EA çalışıyor)
+app.post('/api/heartbeat', async (req, res) => {
+  try {
+    const { hesap_no, isim, durum } = req.body;
+    if (!hesap_no) return res.status(400).json({ error: 'hesap_no zorunlu' });
+    await pool.query(`
+      INSERT INTO heartbeats (hesap_no, isim, son_heartbeat, son_durum)
+      VALUES ($1, $2, NOW(), $3)
+      ON CONFLICT (hesap_no) DO UPDATE SET
+        isim = COALESCE($2, heartbeats.isim),
+        son_heartbeat = NOW(),
+        son_durum = $3
+    `, [hesap_no, isim || null, durum || 'aktif']);
+    // Alarm aktifse ve bot tekrar uyandıysa Telegram'a "tekrar aktif" yaz
+    const alarm = await pool.query('SELECT * FROM heartbeat_alarms WHERE hesap_no = $1', [hesap_no]);
+    if (alarm.rows.length > 0) {
+      const isimGoster = isim || alarm.rows[0].son_isim || hesap_no;
+      const uyumaSuresi = Math.round((new Date() - new Date(alarm.rows[0].alert_sent_at)) / 60000);
+      await sendTelegramAlert('✅ BOT TEKRAR AKTİF\n' + isimGoster + ' (#' + hesap_no + ')\n' + uyumaSuresi + ' dk sonra uyandı');
+      await pool.query('DELETE FROM heartbeat_alarms WHERE hesap_no = $1', [hesap_no]);
+      console.log('Bot uyandi:', hesap_no, isimGoster);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Heartbeat hatasi:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Ana sayfa için: tüm müşterilerin heartbeat durumu
+// musteri_kayit'taki TÜM kayıtlar listelenir (aktif flag'i yok sayılır)
+// Ayrılan müşteri zaten DELETE ile silindiği için listeden otomatik çıkar
+app.get('/api/heartbeats', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT mk.hesap_no,
+             COALESCE(h.isim, m.isim) AS isim,
+             h.son_heartbeat,
+             h.son_durum,
+             CASE
+               WHEN h.son_heartbeat IS NULL THEN NULL
+               ELSE EXTRACT(EPOCH FROM (NOW() - h.son_heartbeat))::INT
+             END AS saniye_once
+      FROM musteri_kayit mk
+      LEFT JOIN heartbeats h ON mk.hesap_no = h.hesap_no
+      LEFT JOIN musteriler m ON mk.hesap_no = m.hesap_no
+      ORDER BY h.son_heartbeat ASC NULLS FIRST
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// =====================================================
+// HEARTBEAT — UYUYAN BOT TESPİT WORKER'I (her 2dk, 7/24)
+// =====================================================
+async function uyuyanlariKontrolEt() {
+  try {
+    const uyuyanlar = await pool.query(`
+      SELECT mk.hesap_no,
+             COALESCE(h.isim, m.isim) AS isim,
+             h.son_heartbeat,
+             EXTRACT(EPOCH FROM (NOW() - h.son_heartbeat))::INT AS saniye_once
+      FROM musteri_kayit mk
+      LEFT JOIN heartbeats h ON mk.hesap_no = h.hesap_no
+      LEFT JOIN musteriler m ON mk.hesap_no = m.hesap_no
+      LEFT JOIN heartbeat_alarms ha ON mk.hesap_no = ha.hesap_no
+      WHERE ha.hesap_no IS NULL
+        AND h.son_heartbeat IS NOT NULL
+        AND h.son_heartbeat < NOW() - INTERVAL '8 minutes'
+    `);
+    for (const row of uyuyanlar.rows) {
+      const isimGoster = row.isim || row.hesap_no;
+      const dk = Math.floor(row.saniye_once / 60);
+      const sonSinyalTr = new Date(row.son_heartbeat).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+      await sendTelegramAlert(
+        '🛑 BOT UYUYOR\n' +
+        isimGoster + ' (#' + row.hesap_no + ')\n' +
+        dk + ' dakikadır uyanıklık sinyali yok\n' +
+        'Son sinyal: ' + sonSinyalTr
+      );
+      await pool.query(
+        `INSERT INTO heartbeat_alarms (hesap_no, alert_sent_at, son_isim)
+         VALUES ($1, NOW(), $2)
+         ON CONFLICT (hesap_no) DO UPDATE SET alert_sent_at = NOW(), son_isim = $2`,
+        [row.hesap_no, isimGoster]
+      );
+      console.log('Uyuyan bot bildirimi:', row.hesap_no, isimGoster, dk + 'dk');
+    }
+  } catch (err) {
+    console.error('Uyuyan kontrol hatasi:', err.message);
+  }
+}
+setInterval(uyuyanlariKontrolEt, 2 * 60 * 1000);
+setTimeout(uyuyanlariKontrolEt, 30 * 1000);
+console.log('Heartbeat uyuyan kontrol worker baslatildi (her 2dk, 7/24)');
+
+// ===========================================
 // NOT: Asagidaki ikinci app.delete handler'i Express tarafindan asla cagrilmiyor
 // (yukarida ayni path'li ilk handler var). Geri uyumluluk icin biraktik, ileride silinebilir.
 app.delete('/api/musteri/:hesapNo', async (req, res) => {
@@ -1565,9 +1704,12 @@ function getMainPage() {
         }catch(e){}
         // Kopukluk ve grafik uyarilarini cek (global degiskenleri de guncelle)
         try{
-          const [kr,gr]=await Promise.all([fetch('/api/kopukluklar'),fetch('/api/grafik-uyarilari')]);
+          const [kr,gr,hbr]=await Promise.all([fetch('/api/kopukluklar'),fetch('/api/grafik-uyarilari'),fetch('/api/heartbeats')]);
           _kopuklukData=await kr.json();
           _grafikData=await gr.json();
+          const tumHb=await hbr.json();
+          _uyuyanData=tumHb.filter(function(h){return h.son_heartbeat!==null&&h.saniye_once>480;});
+          _terminalKopukData=tumHb.filter(function(h){return h.son_heartbeat!==null&&h.saniye_once<=480&&h.son_durum==='terminal_kopuk';});
         }catch(e){}
         var kopuklukData=_kopuklukData;
         var kopData=_kopuklukData;
@@ -1633,15 +1775,19 @@ function getMainPage() {
           if(inactiveList.length>0)alertsHtml+='<button class="alert-btn danger" onclick="showInactive()">⚠ Pasif: '+inactiveList.length+'</button>';
           if(sinyalUyumsuzCount>0)alertsHtml+='<button class="alert-btn danger" onclick="goSinyaller()">📊 Pozisyon Uyumsuz: '+sinyalUyumsuzCount+'</button>';
           if(outliers.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: '+outliers.length+'</button>';
-          if(kopData.length>0)alertsHtml+=\'<button class="alert-btn danger" onclick="showKopuklukModal()">🔴 Kopuk: \'+kopData.length+\'</button>\';
-          if(grafData.length>0)alertsHtml+=\'<button class="alert-btn warning" onclick="showGrafikModal()">📊 Grafik: \'+grafData.length+\'</button>\';
+          if(_uyuyanData.length>0)alertsHtml+='<button class="alert-btn danger" onclick="showUyuyanModal()">😴 Uyuyan Bot: '+_uyuyanData.length+'</button>';
+          if(_terminalKopukData.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showTerminalKopukModal()">📡 Terminal Kopuk: '+_terminalKopukData.length+'</button>';
+if(kopData.length>0)alertsHtml+='<button class="alert-btn danger" onclick="showKopuklukModal()">🔴 Kopuk: '+kopData.length+'</button>';
+if(grafData.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showGrafikModal()">📊 Grafik: '+grafData.length+'</button>';
           if(alertsHtml==='')alertsHtml='<button class="alert-btn success">✓ Normal</button>';
         }else{
           alertsHtml='<button class="alert-btn info">🌙 Piyasa Kapali - Kontrol Pasif</button>';
           if(sinyalUyumsuzCount>0)alertsHtml+='<button class="alert-btn danger" onclick="goSinyaller()">📊 Pozisyon Uyumsuz: '+sinyalUyumsuzCount+'</button>';
           if(outliers.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showOutliers()">📈 Sapma: '+outliers.length+'</button>';
-          if(kopData.length>0)alertsHtml+=\'<button class="alert-btn danger" onclick="showKopuklukModal()">🔴 Kopuk: \'+kopData.length+\'</button>\';
-          if(grafData.length>0)alertsHtml+=\'<button class="alert-btn warning" onclick="showGrafikModal()">📊 Grafik: \'+grafData.length+\'</button>\';
+          if(_uyuyanData.length>0)alertsHtml+='<button class="alert-btn danger" onclick="showUyuyanModal()">😴 Uyuyan Bot: '+_uyuyanData.length+'</button>';
+          if(_terminalKopukData.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showTerminalKopukModal()">📡 Terminal Kopuk: '+_terminalKopukData.length+'</button>';
+if(kopData.length>0)alertsHtml+='<button class="alert-btn danger" onclick="showKopuklukModal()">🔴 Kopuk: '+kopData.length+'</button>';
+if(grafData.length>0)alertsHtml+='<button class="alert-btn warning" onclick="showGrafikModal()">📊 Grafik: '+grafData.length+'</button>';
         }
         document.getElementById('alerts').innerHTML=alertsHtml;
         renderMainTable(allData);
@@ -1700,6 +1846,8 @@ function getMainPage() {
 // ===== KOPUKLUK & GRAFİK DETAY MODALLERİ =====
 var _kopuklukData=[];
 var _grafikData=[];
+var _uyuyanData=[];
+    var _terminalKopukData=[];
 function showKopuklukDetay(){
   var html='<div style="padding:4px 0">';
   _kopuklukData.forEach(function(k){
@@ -1753,6 +1901,36 @@ function showGrafikModal(){
          +'</div>';
   });
   showAlertModal('📊 Grafik Hatası ('+_grafikData.length+')', html);
+}
+function showUyuyanModal(){
+  if(!_uyuyanData||_uyuyanData.length===0)return;
+  var html='<div style="padding:10px 0;background:#fee2e2;border-radius:6px;margin-bottom:10px;font-size:0.78rem;color:#991b1b">'
+         +'Bu hesaplardan 8+ dakikadır panele uyanıklık sinyali gelmiyor. VPS kapalı, EA donmuş veya internet kesilmiş olabilir. Telegrama da bildirim gönderildi.'
+         +'</div>';
+  _uyuyanData.forEach(function(h){
+    var dk=Math.floor(h.saniye_once/60);
+    html+='<div style="padding:10px 0;border-bottom:1px solid #f0f0f0">'
+         +'<div style="font-weight:600;color:#dc2626">😴 '+(h.isim||h.hesap_no)+'</div>'
+         +'<div style="font-size:0.78rem;color:#888;margin-top:3px">Hesap: '+h.hesap_no+' &nbsp;|&nbsp; '+dk+' dakikadır sinyal yok</div>'
+         +'<div style="font-size:0.75rem;color:#aaa;margin-top:2px">Son sinyal: '+new Date(h.son_heartbeat).toLocaleString("tr-TR")+'</div>'
+         +'</div>';
+  });
+  showAlertModal('😴 Uyuyan Bot ('+_uyuyanData.length+')', html);
+}
+function showTerminalKopukModal(){
+  if(!_terminalKopukData||_terminalKopukData.length===0)return;
+  var html='<div style="padding:10px 0;background:#fef3c7;border-radius:6px;margin-bottom:10px;font-size:0.78rem;color:#92400e">'
+         +'Bu hesaplarda bildirim botu çalışıyor (uyanık) ama MetaTrader broker bağlantısı düşmüş. Bot panele bilgi gönderebiliyor ama ticaret yapamıyor.'
+         +'</div>';
+  _terminalKopukData.forEach(function(h){
+    var dk=Math.floor(h.saniye_once/60);
+    html+='<div style="padding:10px 0;border-bottom:1px solid #f0f0f0">'
+         +'<div style="font-weight:600;color:#d97706">📡 '+(h.isim||h.hesap_no)+'</div>'
+         +'<div style="font-size:0.78rem;color:#888;margin-top:3px">Hesap: '+h.hesap_no+' &nbsp;|&nbsp; bot uyanık, broker kopuk</div>'
+         +'<div style="font-size:0.75rem;color:#aaa;margin-top:2px">Son sinyal: '+new Date(h.son_heartbeat).toLocaleString("tr-TR")+' ('+dk+' dk önce)</div>'
+         +'</div>';
+  });
+  showAlertModal('📡 Terminal Kopuk ('+_terminalKopukData.length+')', html);
 }
 function showAlertModal(title, content){
   var m=document.getElementById('alertDetailModal');
