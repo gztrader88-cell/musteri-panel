@@ -38,9 +38,9 @@ async function sendTelegramAlert(text) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: HB_CHAT_ID, text: text })
     });
-    if (!res.ok) console.log('Telegram alert HTTP', res.status);
+    if (!res.ok) ('Telegram alert HTTP', res.status);
   } catch (err) {
-    console.log('Telegram alert hatasi:', err.message);
+    ('Telegram alert hatasi:', err.message);
   }
 }
 async function initDB() {
@@ -204,7 +204,21 @@ async function initDB() {
       ON CONFLICT (hesap_no) DO NOTHING
     `);
     console.log('Tablolar hazir (sinyaller + pozisyon detay + lot_referans dahil)');
-
+// === VADE TASIMA GUNU AYARI ===
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS vade_ayar (
+        id INT PRIMARY KEY DEFAULT 1,
+        gun INT,
+        son_guncelleme TIMESTAMP DEFAULT NOW(),
+        son_guncelleyen VARCHAR(50),
+        CONSTRAINT single_row CHECK (id = 1)
+      )
+    `);
+    await pool.query(`
+      INSERT INTO vade_ayar (id, gun, son_guncelleyen)
+      VALUES (1, NULL, 'init')
+      ON CONFLICT (id) DO NOTHING
+    `);
     // override_mode kolonu yoksa ekle
     await pool.query(`ALTER TABLE sinyaller ADD COLUMN IF NOT EXISTS override_mode VARCHAR(10) DEFAULT 'TV'`).catch(() => {});
     const check = await pool.query('SELECT COUNT(*) FROM musteri_kayit');
@@ -1200,6 +1214,42 @@ app.get('/api/lot-list', async (req, res) => {
 });
 // Lot Sistemi sayfasi
 app.get('/lot-sistemi', robotAuth, (req, res) => { res.send(getLotSistemiPage()); });
+// =====================================================
+// VADE TASIMA GUNU API
+// =====================================================
+// Robot okur (GET) — saatte bir
+app.get('/api/vade-gunu', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT gun, son_guncelleme FROM vade_ayar WHERE id = 1');
+    if (result.rows.length === 0 || result.rows[0].gun === null) {
+      return res.json({ gun: null, son_guncelleme: null });
+    }
+    res.json({
+      gun: parseInt(result.rows[0].gun),
+      son_guncelleme: result.rows[0].son_guncelleme
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Panelden manuel yazma (POST)
+app.post('/api/vade-gunu', async (req, res) => {
+  try {
+    const { gun } = req.body;
+    if (gun === null || gun === '' || gun === undefined) {
+      await pool.query(`UPDATE vade_ayar SET gun = NULL, son_guncelleme = NOW(), son_guncelleyen = 'manuel' WHERE id = 1`);
+      console.log('Vade tasima gunu temizlendi');
+      return res.json({ ok: true, gun: null });
+    }
+    const g = parseInt(gun);
+    if (!g || g < 1 || g > 31) return res.status(400).json({ error: 'gun 1-31 arasinda olmali' });
+    await pool.query(
+      `UPDATE vade_ayar SET gun = $1, son_guncelleme = NOW(), son_guncelleyen = 'manuel' WHERE id = 1`,
+      [g]
+    );
+    console.log('Vade tasima gunu guncellendi:', g);
+    res.json({ ok: true, gun: g });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // =====================================================
 // TUM OVERRIDE'LARI KALDIR (TEK SEFERLIK)
 // Mevcut baslangic_parasi degerlerini KORURUR, sadece override=FALSE yapar
@@ -3277,6 +3327,18 @@ tr:hover{background:rgba(255,255,255,0.02)}
   </div>
 </div>
 <div class="container">
+<div style="background:#1e293b;border:2px solid #f59e0b;border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:220px">
+      <div style="font-size:0.85rem;color:#f59e0b;font-weight:700;margin-bottom:4px">📅 Vade Taşıma Günü</div>
+      <div style="font-size:0.72rem;color:#94a3b8;line-height:1.5">Robot her ayın bu gününde saat 11:00'de vade taşıma yapar. Boş bırakırsan taşıma yapılmaz. Her ay manuel girersin.</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="number" id="vadeGunInput" min="1" max="31" style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:9px 12px;border-radius:6px;font-size:1rem;width:80px;text-align:center;font-weight:700" placeholder="--">
+      <button onclick="vadeGunKaydet()" style="background:#f59e0b;color:#fff;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:0.82rem;font-weight:600">💾 Kaydet</button>
+      <button onclick="vadeGunTemizle()" style="background:#475569;color:#fff;border:none;padding:9px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Temizle</button>
+    </div>
+    <div id="vadeGunInfo" style="width:100%;font-size:0.72rem;color:#64748b;padding-top:6px;border-top:1px solid #334155">Yükleniyor...</div>
+  </div>
   <div class="info-box">
     <strong>Bilgi:</strong> Robot her saatte bir bu sayfayı kontrol eder ve değişiklikleri okur. <strong style="color:#22c55e">OTOMATİK:</strong> Robot vade taşımada AccountEquity'yi otomatik yazar. <strong style="color:#f59e0b">MANUEL:</strong> Sen değiştirdin, robot bir sonraki vade taşımaya kadar bu değeri kullanır. Vade taşımada otomatik moda geri döner.
   </div>
@@ -3325,6 +3387,46 @@ tr:hover{background:rgba(255,255,255,0.02)}
 </div>
 <script>
 var data=[];
+async function vadeGunYukle(){
+  try{
+    var r=await fetch('/api/vade-gunu');
+    var d=await r.json();
+    if(d.gun){
+      document.getElementById('vadeGunInput').value=d.gun;
+      var tarih=d.son_guncelleme?new Date(d.son_guncelleme).toLocaleString('tr-TR'):'-';
+      document.getElementById('vadeGunInfo').innerHTML='<span style="color:#22c55e">✓ Aktif:</span> Her ayın <strong>'+d.gun+'.</strong> günü &nbsp;|&nbsp; Son güncelleme: '+tarih;
+    } else {
+      document.getElementById('vadeGunInput').value='';
+      document.getElementById('vadeGunInfo').innerHTML='<span style="color:#ef4444">⚠️ Gün girilmedi — robot vade taşıma YAPMIYOR</span>';
+    }
+  }catch(e){document.getElementById('vadeGunInfo').textContent='Yüklenemedi: '+e.message;}
+}
+async function vadeGunKaydet(){
+  var g=parseInt(document.getElementById('vadeGunInput').value);
+  if(!g||g<1||g>31){alert('1-31 arası bir gün gir');return;}
+  if(!confirm('Vade taşıma günü her ayın '+g+'\\'i olarak ayarlanacak.\\n\\nRobot her ayın bu gününde saat 11:00\\'de vade taşıma yapacak.\\n\\nDevam edilsin mi?'))return;
+  try{
+    var r=await fetch('/api/vade-gunu',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({gun:g})
+    });
+    var d=await r.json();
+    if(d.ok){vadeGunYukle();}else{alert('Hata: '+(d.error||'bilinmeyen'));}
+  }catch(e){alert('Bağlantı hatası: '+e.message);}
+}
+async function vadeGunTemizle(){
+  if(!confirm('Vade taşıma günü temizlenecek.\\n\\nRobot bu ay vade taşıma YAPMAYACAK. Emin misin?'))return;
+  try{
+    var r=await fetch('/api/vade-gunu',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({gun:null})
+    });
+    var d=await r.json();
+    if(d.ok)vadeGunYukle();else alert('Hata');
+  }catch(e){alert('Bağlantı hatası');}
+}
 function fmt(n){return new Intl.NumberFormat('tr-TR').format(Math.round(parseFloat(n)||0));}
 function fmtDate(d){if(!d)return'-';var dt=new Date(d);return dt.toLocaleString('tr-TR');}
 function tSince(dt){if(!dt)return'-';var d=Math.round((Date.now()-new Date(dt).getTime())/1000);if(d<60)return d+' sn';if(d<3600)return Math.floor(d/60)+' dk';if(d<86400)return Math.floor(d/3600)+' saat';return Math.floor(d/86400)+' gün';}
@@ -3464,7 +3566,9 @@ async function resetOverride(hesap_no){
   }catch(e){alert('Bağlantı hatası');}
 }
 load();
+vadeGunYukle();
 setInterval(load,30000);
+setInterval(vadeGunYukle,60000);
 </script>
 </body>
 </html>`;
