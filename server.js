@@ -1725,6 +1725,15 @@ function getMainPage() {
         document.getElementById('hYuzde80Ihtiyac').textContent='%80 zaten hakedis ustunde';
         document.getElementById('hYuzde80Ihtiyac').style.color='#16a34a';
       }
+      // Tiklayinca: baslangic parasinin altindaki TUM kisiler + gereken yuzde (en yakindan en uzaga)
+      if(ihtiyaclar.length){
+        var ulasamayanListe=[].concat(ihtiyaclar).sort(function(a,b){return a.pct-b.pct;}).map(function(m){return m.isim+' — %'+m.pct.toFixed(1)+' artis gerekiyor';});
+        document.getElementById('hYuzde80Ihtiyac').style.cursor='pointer';
+        document.getElementById('hYuzde80Ihtiyac').onclick=function(){showModal('Hakedise Ulasmamis Musteriler ('+ihtiyaclar.length+' kisi)',ulasamayanListe);};
+      } else {
+        document.getElementById('hYuzde80Ihtiyac').style.cursor='default';
+        document.getElementById('hYuzde80Ihtiyac').onclick=null;
+      }
       if(enUzak){
         document.getElementById('hEnUzakPct').textContent='%'+enUzak.pct.toFixed(1)+' artis';
         document.getElementById('hEnUzakIsim').textContent=enUzak.isim;
