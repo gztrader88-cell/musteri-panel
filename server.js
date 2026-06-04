@@ -1702,8 +1702,11 @@ function getMainPage() {
       var hazirDegil=musteriler.filter(function(m){return m.varlik<m.hakedis;});
       var ihtiyaclar=hazirDegil.map(function(m){return {isim:m.isim,ihtiyac:m.hakedis-m.varlik,pct:((m.hakedis-m.varlik)/m.varlik)*100};}).sort(function(a,b){return b.pct-a.pct;});
       var sirali=[].concat(ihtiyaclar).sort(function(a,b){return a.pct-b.pct;});
-      var hedef80=Math.ceil(hazirDegil.length*0.8);
-      var kisi80=sirali[hedef80-1];
+      // %80 hedefi TUM musteriler uzerinden: robot %g kazandirinda hakediste olanlar = pct<=g olanlar.
+      // Hedef tum musterilerin %80'i hakediste olsun; zaten hazirlar.length kisi ustte, (hedefAdet-R) kisi daha lazim.
+      var hedefAdet=Math.ceil(musteriler.length*0.8);
+      var gereken80=hedefAdet-hazirlar.length;
+      var kisi80=(gereken80<=0)?null:sirali[gereken80-1];
       var enUzak=ihtiyaclar[0];
       document.getElementById('hHazirKomisyon').textContent=formatMoney(hazirKomisyon)+' TL';
       document.getElementById('hHazirKomisyon').style.cursor='pointer';
