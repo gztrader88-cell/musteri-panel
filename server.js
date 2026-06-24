@@ -1202,7 +1202,7 @@ app.delete('/api/lot/:hesap_no', async (req, res) => {
 app.get('/api/lot-list', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT lr.*, m.isim, m.varlik, mk.aktif
+      SELECT lr.*, m.isim, m.varlik, m.son_guncelleme AS varlik_guncelleme, mk.aktif
       FROM lot_referans lr
       LEFT JOIN musteriler m ON lr.hesap_no = m.hesap_no
       LEFT JOIN musteri_kayit mk ON lr.hesap_no = mk.hesap_no
@@ -1210,6 +1210,50 @@ app.get('/api/lot-list', async (req, res) => {
       ORDER BY m.isim NULLS LAST, lr.hesap_no
     `);
     res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// === GÜNCELLE: anlık varlık → robot lot başlangıç parası (lot_referans), override=TRUE ===
+// DİKKAT: Yalnız lot_referans güncellenir. Komisyon/hak ediş (musteri_kayit) ASLA değişmez.
+// Varlığı yok/0 olanlar ATLANIR (iyi bir değeri 0 ile ezmemek için).
+app.post('/api/lot-guncelle-toplu', async (req, res) => {
+  try {
+    const rows = (await pool.query(`
+      SELECT mk.hesap_no, m.isim, m.varlik, lr.baslangic_parasi AS eski
+      FROM musteri_kayit mk
+      LEFT JOIN musteriler m ON mk.hesap_no = m.hesap_no
+      LEFT JOIN lot_referans lr ON mk.hesap_no = lr.hesap_no
+      WHERE mk.aktif IS NULL OR mk.aktif = TRUE
+    `)).rows;
+    const updated = [], skipped = [];
+    for (const r of rows) {
+      const v = parseFloat(r.varlik);
+      if (!v || v <= 0) { skipped.push({ hesap_no: r.hesap_no, isim: r.isim || '', sebep: 'varlik verisi yok / 0' }); continue; }
+      await pool.query(`
+        INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleme, son_guncelleyen)
+        VALUES ($1, $2, NOW(), TRUE, NOW(), 'guncelle_toplu')
+        ON CONFLICT (hesap_no) DO UPDATE SET
+          baslangic_parasi = $2, baslangic_tarihi = NOW(), override = TRUE, son_guncelleme = NOW(), son_guncelleyen = 'guncelle_toplu'
+      `, [r.hesap_no, v]);
+      updated.push({ hesap_no: r.hesap_no, isim: r.isim || '', eski: r.eski != null ? Math.round(r.eski) : null, yeni: Math.round(v) });
+    }
+    console.log('Lot toplu guncelle:', updated.length, 'guncellendi,', skipped.length, 'atlandi');
+    res.json({ ok: true, guncellenen: updated.length, atlanan: skipped.length, updated, skipped });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/lot-guncelle/:hesap_no', async (req, res) => {
+  try {
+    const { hesap_no } = req.params;
+    const r = (await pool.query('SELECT isim, varlik FROM musteriler WHERE hesap_no = $1', [hesap_no])).rows[0];
+    const v = r ? parseFloat(r.varlik) : 0;
+    if (!v || v <= 0) return res.json({ ok: false, reason: 'varlik verisi yok / 0' });
+    await pool.query(`
+      INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, override, son_guncelleme, son_guncelleyen)
+      VALUES ($1, $2, NOW(), TRUE, NOW(), 'guncelle_tekli')
+      ON CONFLICT (hesap_no) DO UPDATE SET
+        baslangic_parasi = $2, baslangic_tarihi = NOW(), override = TRUE, son_guncelleme = NOW(), son_guncelleyen = 'guncelle_tekli'
+    `, [hesap_no, v]);
+    console.log('Lot tekli guncelle:', hesap_no, '->', Math.round(v));
+    res.json({ ok: true, hesap_no, yeni: Math.round(v) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // Lot Sistemi sayfasi
@@ -3351,8 +3395,15 @@ tr:hover{background:rgba(255,255,255,0.02)}
     </div>
     <div id="vadeGunInfo" style="width:100%;font-size:0.72rem;color:#64748b;padding-top:6px;border-top:1px solid #334155">Yükleniyor...</div>
   </div>
+  <div style="background:#0f1f17;border:2px solid #16a34a;border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:220px">
+      <div style="font-size:0.85rem;color:#22c55e;font-weight:700;margin-bottom:4px">💰 Başlangıç Parası Güncelle</div>
+      <div style="font-size:0.72rem;color:#94a3b8;line-height:1.5">Tüm aktif müşterilerin <strong>o anki anlık varlığını</strong> başlangıç parası yapar (robot lotu buna göre belirler). Komisyon / hak edişe <strong>dokunmaz</strong>. Verisi gelmemiş / 0 olanlar atlanır. Hepsi MANUEL (override) olur.</div>
+    </div>
+    <button onclick="guncelleToplu()" style="background:#16a34a;color:#fff;border:none;padding:11px 18px;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:700">💰 Tümünü Güncelle</button>
+  </div>
   <div class="info-box">
-    <strong>Bilgi:</strong> Robot her saatte bir bu sayfayı kontrol eder ve değişiklikleri okur. <strong style="color:#22c55e">OTOMATİK:</strong> Robot vade taşımada AccountEquity'yi otomatik yazar. <strong style="color:#f59e0b">MANUEL:</strong> Sen değiştirdin, robot bir sonraki vade taşımaya kadar bu değeri kullanır. Vade taşımada otomatik moda geri döner.
+    <strong>Bilgi:</strong> Robot her saatte bir bu değeri okur ve lotunu buna göre belirler (ay içinde sabit). Başlangıç parası artık <strong style="color:#22c55e">YALNIZ</strong> senin "💰 Güncelle" butonunla değişir — robot vade taşımada kendisi yazmaz. <strong style="color:#f59e0b">MANUEL:</strong> override aktif; robot bu değeri kullanır.
   </div>
   <div class="stats-row">
     <div class="stat-box"><div class="stat-val blue" id="sToplam">-</div><div class="stat-lbl">Toplam Müşteri</div></div>
@@ -3442,6 +3493,34 @@ async function vadeGunTemizle(){
 function fmt(n){return new Intl.NumberFormat('tr-TR').format(Math.round(parseFloat(n)||0));}
 function fmtDate(d){if(!d)return'-';var dt=new Date(d);return dt.toLocaleString('tr-TR');}
 function tSince(dt){if(!dt)return'-';var d=Math.round((Date.now()-new Date(dt).getTime())/1000);if(d<60)return d+' sn';if(d<3600)return Math.floor(d/60)+' dk';if(d<86400)return Math.floor(d/3600)+' saat';return Math.floor(d/86400)+' gün';}
+async function guncelleTekli(hesap_no){
+  var d=data.find(function(x){return x.hesap_no===hesap_no;});
+  if(!d)return;
+  var v=parseFloat(d.varlik)||0;
+  if(v<=0){alert('Bu müşterinin anlık varlık verisi yok / 0.\\n\\nVarlık bilgisi gelince tekrar dene.');return;}
+  var taze=d.varlik_guncelleme?(tSince(d.varlik_guncelleme)+' önce'):'bilinmiyor';
+  if(!confirm(d.isim+' (#'+hesap_no+')\\n\\nBaşlangıç parası: '+fmt(d.baslangic_parasi)+' TL → '+fmt(v)+' TL (anlık varlık)\\nVarlık verisi: '+taze+'\\n\\nManuel (override) olacak. Devam?'))return;
+  try{
+    var r=await fetch('/api/lot-guncelle/'+hesap_no,{method:'POST'});
+    var res=await r.json();
+    if(res.ok){load();}else{alert('Güncellenemedi: '+(res.reason||res.error||'bilinmeyen'));}
+  }catch(e){alert('Bağlantı hatası');}
+}
+async function guncelleToplu(){
+  if(!confirm('TÜM aktif müşterilerin o anki ANLIK VARLIĞI başlangıç parası yapılacak.\\n\\n• Robot lotu bu değere göre belirler (komisyon / hak ediş DEĞİŞMEZ).\\n• Verisi gelmemiş / 0 olanlar atlanır.\\n• Hepsi MANUEL (override) olur.\\n\\nDevam edilsin mi?'))return;
+  try{
+    var r=await fetch('/api/lot-guncelle-toplu',{method:'POST'});
+    var res=await r.json();
+    if(!res.ok){alert('Hata: '+(res.error||'bilinmeyen'));return;}
+    var msg='✅ '+res.guncellenen+' müşteri güncellendi.';
+    if(res.atlanan>0){
+      msg+='\\n\\n⚠️ '+res.atlanan+' atlandı (varlık verisi yok / 0):\\n';
+      msg+=res.skipped.map(function(s){return '• '+(s.isim||('#'+s.hesap_no));}).join('\\n');
+    }
+    alert(msg);
+    load();
+  }catch(e){alert('Bağlantı hatası: '+e.message);}
+}
 async function load(){
   try{
     var r=await fetch('/api/lot-list');
@@ -3484,7 +3563,8 @@ function render(){
     html+='<td style="color:#64748b;font-size:0.75rem">'+tSince(d.son_guncelleme)+' önce</td>';
     html+='<td style="color:#64748b;font-size:0.75rem">'+(d.son_guncelleyen||'-')+'</td>';
     var silBtn=(d.aktif!==true)?'<button class="action-btn" style="background:#dc2626;color:#fff;margin-left:4px" onclick="lotSil(\\''+d.hesap_no+'\\')">🗑 Sil</button>':'';
-    html+='<td><button class="action-btn warn" onclick="duzenle(\\''+d.hesap_no+'\\')">✏️ Düzenle</button>'+resetBtn+silBtn+'</td>';
+    var guncelleBtn='<button class="action-btn" style="background:#16a34a" onclick="guncelleTekli(\\''+d.hesap_no+'\\')">💰 Güncelle</button>';
+    html+='<td>'+guncelleBtn+'<button class="action-btn warn" onclick="duzenle(\\''+d.hesap_no+'\\')">✏️ Düzenle</button>'+resetBtn+silBtn+'</td>';
     html+='</tr>';
   });
   document.getElementById('tbody').innerHTML=html;
