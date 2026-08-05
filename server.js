@@ -2712,12 +2712,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .mpos{background:#dcfce7;color:#16a34a}
 .mneg{background:#fee2e2;color:#dc2626}
 .mzero{background:#f3f4f6;color:#666}
-.month-matrix{width:100%;border-collapse:separate;border-spacing:3px;font-size:0.72rem}
-.month-matrix th{padding:4px 3px;text-align:center;color:#888;font-weight:600;white-space:nowrap;font-size:0.64rem}
-.month-matrix td{padding:6px 4px;text-align:center;white-space:nowrap;border-radius:4px}
-.month-matrix th:first-child,.month-matrix td.yr{font-weight:700;color:#444;position:sticky;left:0;background:#fff;z-index:1}
-.month-matrix .mempty{background:#f7f8fa;color:#d5d5d5}
-.month-matrix tr.avg-row td{border-top:2px solid #cbd5e1}
 @media(max-width:600px){.stats-grid{grid-template-columns:repeat(2,1fr)}.monthly-grid{grid-template-columns:repeat(3,1fr)}}
 </style>
 </head>
@@ -2755,9 +2749,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="chart-wrap" id="wrapTam"><canvas id="chartBakiyeTam"></canvas></div>
   </div>
   <div class="card">
-    <h2>Aylik Getiri (%)</h2>
-    <div style="overflow-x:auto"><table class="month-matrix" id="monthMatrix"></table></div>
-    <div style="font-size:0.62rem;color:#aaa;margin-top:8px">* devam eden ay &nbsp;&middot;&nbsp; "Yil %" o yilin bilesik getirisi &nbsp;&middot;&nbsp; "Ort." satiri ayin yillar ortalamasi</div>
+    <h2>Aylik Getiri</h2>
+    <div class="monthly-grid" id="monthlyGrid"></div>
   </div>
 </div>
 <script>
@@ -2908,45 +2901,19 @@ async function init(){
     prevEnd=monthEnd[ym2];
   }
   window._aylikData=aylikData;
-  // Aylik matris: satir=yil, sutun=Oca..Ara, sag=Yil toplami (bilesik), en alt=Ort.
-  var curYm=new Date().toISOString().slice(0,7);
-  var byYear={};
-  Object.keys(aylikData).forEach(function(ym){
-    var y=ym.slice(0,4), m=parseInt(ym.slice(5,7));
-    if(!byYear[y])byYear[y]={};
-    byYear[y][m]=aylikData[ym];
-  });
-  var years=Object.keys(byYear).sort();
-  function _cls(v){return v>0?"mpos":v<0?"mneg":"mzero";}
-  function _fmt(v){return (v>0?"+":"")+v.toFixed(1);}
-  var html='<thead><tr><th>Yil</th>';
-  for(var mo=1;mo<=12;mo++) html+='<th>'+MONTH_NAMES[mo-1]+'</th>';
-  html+='<th>Yil %</th></tr></thead><tbody>';
-  for(var yi=0;yi<years.length;yi++){
-    var y=years[yi];
-    html+='<tr><td class="yr">'+y+'</td>';
-    var comp=1, has=false;
-    for(var mo=1;mo<=12;mo++){
-      var v=byYear[y][mo];
-      if(v===undefined){ html+='<td class="mempty"></td>'; }
-      else{
-        var mark=((y+'-'+(mo<10?'0':'')+mo)===curYm)?'*':'';
-        html+='<td class="'+_cls(v)+'">'+_fmt(v)+mark+'</td>';
-        comp*=(1+v/100); has=true;
-      }
-    }
-    var yt=(comp-1)*100;
-    html+='<td class="'+(has?_cls(yt):"mempty")+'" style="font-weight:800">'+(has?_fmt(yt):"")+'</td></tr>';
+  var grid=document.getElementById("monthlyGrid");
+  var entries=Object.keys(aylikData).sort();
+  for(var q=0;q<entries.length;q++){
+    var ym=entries[q];
+    var pct=aylikData[ym];
+    var parts=ym.split("-");
+    var isCurMonth=(ym===new Date().toISOString().slice(0,7));
+    var cell=document.createElement("div");
+    cell.className="month-cell "+(pct>0?"mpos":pct<0?"mneg":"mzero");
+    var label=isCurMonth?" <small style='font-size:0.6rem;opacity:0.7'>(devam)</small>":"";
+    cell.innerHTML='<div class="month-name">'+parts[0]+" "+MONTH_NAMES[parseInt(parts[1])-1]+label+'</div><div class="month-val">'+(pct>0?"+":"")+pct.toFixed(1)+"%</div>";
+    grid.appendChild(cell);
   }
-  html+='<tr class="avg-row"><td class="yr">Ort.</td>';
-  for(var mo=1;mo<=12;mo++){
-    var sum=0,n=0;
-    for(var yi2=0;yi2<years.length;yi2++){ var vv=byYear[years[yi2]][mo]; if(vv!==undefined){sum+=vv;n++;} }
-    if(n===0){ html+='<td class="mempty"></td>'; }
-    else{ var av=sum/n; html+='<td class="'+_cls(av)+'" style="font-weight:800">'+_fmt(av)+'</td>'; }
-  }
-  html+='<td class="mempty"></td></tr></tbody>';
-  document.getElementById("monthMatrix").innerHTML=html;
 }
 function toggleFs(id){
   var el=document.getElementById(id); if(!el)return;
