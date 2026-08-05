@@ -2845,7 +2845,7 @@ async function init(){
   var labels=extData.map(function(x){return x[0];});
   var values=extData.map(function(x){return x[1];});
   var si=DAILY_DATA.length;
-  var ZOOM_OPTS={zoom:{drag:{enabled:true,backgroundColor:"rgba(26,115,232,0.15)"},wheel:{enabled:true,modifierKey:"ctrl"},pinch:{enabled:true},mode:"x"}};
+  var ZOOM_OPTS={zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:"xy"},pan:{enabled:true,mode:"xy"}};
   window._chart1=new Chart(document.getElementById("chartBakiye"),{
     type:"line",
     data:{labels:labels,datasets:[{data:values,segment:{borderColor:function(ctx){return ctx.p0DataIndex<si-1?"#1a73e8":"#f59e0b";}},pointRadius:0,borderWidth:2,tension:0.1,fill:false}]},
