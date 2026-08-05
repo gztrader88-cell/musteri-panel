@@ -2848,9 +2848,9 @@ async function init(){
   var ZOOM_OPTS={zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:"xy"},pan:{enabled:true,mode:"xy"}};
   window._chart1=new Chart(document.getElementById("chartBakiye"),{
     type:"line",
-    data:{labels:labels,datasets:[{data:values,segment:{borderColor:function(ctx){return ctx.p0DataIndex<si-1?"#1a73e8":"#f59e0b";}},pointRadius:0,borderWidth:2,tension:0.1,fill:false}]},
+    data:{labels:labels,datasets:[{data:values,borderColor:"#1a73e8",pointRadius:0,borderWidth:2,tension:0.1,fill:false}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},zoom:ZOOM_OPTS,tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
-      scales:{x:{ticks:{maxTicksLimit:14,callback:function(val,i){return labels[i]?labels[i].slice(0,7):""}},grid:{display:false}},y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}}}
+      scales:{x:{ticks:{maxTicksLimit:14,callback:function(val){var l=this.getLabelForValue(val);return l?l.slice(0,7):"";}},grid:{display:false}},y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}}}
   });
   document.getElementById("chartBakiye").ondblclick=function(){window._chart1.resetZoom();};
   // === IKINCI GRAFIK: Tam gecmis (2022-05-18 basi, 38.000 TL) — gercek veri ===
@@ -2880,9 +2880,9 @@ async function init(){
   })();
   window._chart2=new Chart(document.getElementById("chartBakiyeTam"),{
     type:"line",
-    data:{labels:tamLabels,datasets:[{data:tamValues,segment:{borderColor:function(ctx){return ctx.p0DataIndex<tamSi-1?"#1a73e8":"#f59e0b";}},pointRadius:0,borderWidth:2,tension:0.1,fill:false}]},
+    data:{labels:tamLabels,datasets:[{data:tamValues,borderColor:"#1a73e8",pointRadius:0,borderWidth:2,tension:0.1,fill:false}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},zoom:ZOOM_OPTS,tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
-      scales:{x:{ticks:{maxTicksLimit:14,callback:function(val,i){return tamLabels[i]?tamLabels[i].slice(0,7):""}},grid:{display:false}},y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}}}
+      scales:{x:{ticks:{maxTicksLimit:14,callback:function(val){var l=this.getLabelForValue(val);return l?l.slice(0,7):"";}},grid:{display:false}},y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}}}
   });
   document.getElementById("chartBakiyeTam").ondblclick=function(){window._chart2.resetZoom();};
   // Aylik getiri: tamData'dan (2022'den beri) SUREKLI hesapla
