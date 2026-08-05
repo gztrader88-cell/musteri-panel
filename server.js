@@ -2690,14 +2690,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .header-btns{display:flex;gap:8px}
 .hbtn{background:rgba(255,255,255,0.15);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.8rem;text-decoration:none}
 .hbtn:hover{background:rgba(255,255,255,0.25)}
-.container{max-width:1200px;margin:0 auto;padding:16px}
+.container{max-width:1360px;margin:0 auto;padding:16px}
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
 .stat-card{background:#fff;border-radius:10px;padding:14px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.08);text-align:center}
 .stat-val{font-size:1.3rem;font-weight:700}
 .stat-lbl{font-size:0.65rem;color:#888;margin-top:3px}
 .card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,0.08);margin-bottom:16px}
 .card h2{font-size:0.9rem;font-weight:600;color:#444;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #f0f0f0}
-.chart-wrap{position:relative;height:300px}
+.chart-wrap{position:relative;height:460px}
 .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #f0f0f0}
 .card-head h2{border:none;margin:0;padding:0}
 .fs-btn{background:#eef2ff;color:#1a73e8;border:1px solid #dbe4ff;border-radius:6px;padding:4px 10px;font-size:0.72rem;cursor:pointer;white-space:nowrap}
