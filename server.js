@@ -2679,6 +2679,8 @@ function getRobotPage() {
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Robot Performans</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -2696,6 +2698,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,0.08);margin-bottom:16px}
 .card h2{font-size:0.9rem;font-weight:600;color:#444;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #f0f0f0}
 .chart-wrap{position:relative;height:300px}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #f0f0f0}
+.card-head h2{border:none;margin:0;padding:0}
+.fs-btn{background:#eef2ff;color:#1a73e8;border:1px solid #dbe4ff;border-radius:6px;padding:4px 10px;font-size:0.72rem;cursor:pointer;white-space:nowrap}
+.fs-btn:hover{background:#dbe4ff}
+.chart-wrap:fullscreen{height:100%;width:100%;background:#fff;padding:24px}
+.chart-wrap:-webkit-full-screen{height:100%;width:100%;background:#fff;padding:24px}
+.section-title{font-size:0.7rem;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;margin:4px 2px 8px}
 .monthly-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .month-cell{padding:8px 6px;border-radius:6px;text-align:center}
 .month-name{font-size:0.65rem;color:#666;margin-bottom:2px}
@@ -2725,12 +2734,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="stat-card"><div class="stat-val" id="sGunluk" style="color:#d97706">-</div><div class="stat-lbl">Ort. Gunluk Getiri</div></div>
   </div>
   <div class="card">
-    <h2>Bakiye Grafigi (100.000 TL baslangic)</h2>
-    <div class="chart-wrap"><canvas id="chartBakiye"></canvas></div>
+    <div class="card-head"><h2>Bakiye Grafigi (100.000 TL baslangic)</h2><button class="fs-btn" onclick="toggleFs('wrapBakiye')">&#x26F6; Tam Ekran</button></div>
+    <div class="chart-wrap" id="wrapBakiye"><canvas id="chartBakiye"></canvas></div>
+  </div>
+  <div class="section-title">Tum Zamanlar (2022'den beri)</div>
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-val" id="sTamToplam" style="color:#16a34a">-</div><div class="stat-lbl">Toplam Getiri</div></div>
+    <div class="stat-card"><div class="stat-val" id="sTamSure" style="color:#1a73e8">-</div><div class="stat-lbl">Gecen Sure</div></div>
+    <div class="stat-card"><div class="stat-val" id="sTamDrawdown" style="color:#dc2626">-</div><div class="stat-lbl">Maks. Drawdown</div></div>
+    <div class="stat-card"><div class="stat-val" id="sTamGunluk" style="color:#d97706">-</div><div class="stat-lbl">Ort. Gunluk Getiri</div></div>
   </div>
   <div class="card">
-    <h2>Tam Bakiye Grafigi (2022den beri, 100.000 TL baslangic)</h2>
-    <div class="chart-wrap"><canvas id="chartBakiyeTam"></canvas></div>
+    <div class="card-head"><h2>Tam Bakiye Grafigi (2022den beri, 100.000 TL baslangic)</h2><button class="fs-btn" onclick="toggleFs('wrapTam')">&#x26F6; Tam Ekran</button></div>
+    <div class="chart-wrap" id="wrapTam"><canvas id="chartBakiyeTam"></canvas></div>
   </div>
   <div class="card">
     <h2>Aylik Getiri</h2>
@@ -2757,7 +2773,8 @@ function exportExcel(){
   ws["!cols"]=[{wch:14},{wch:16},{wch:18},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws,"Robot Performans");
   var mrows=[["Ay","Getiri %"]];
-  Object.keys(MONTHLY_PCT).sort().forEach(function(ym){mrows.push([ym,MONTHLY_PCT[ym]]);});
+  var _ad=window._aylikData||MONTHLY_PCT;
+  Object.keys(_ad).sort().forEach(function(ym){mrows.push([ym,_ad[ym]]);});
   var ws2=XLSX.utils.aoa_to_sheet(mrows);
   XLSX.utils.book_append_sheet(wb,ws2,"Aylik Getiri");
   XLSX.writeFile(wb,"robot_performans_"+new Date().toISOString().slice(0,10)+".xlsx");
@@ -2828,53 +2845,62 @@ async function init(){
   var labels=extData.map(function(x){return x[0];});
   var values=extData.map(function(x){return x[1];});
   var si=DAILY_DATA.length;
-  new Chart(document.getElementById("chartBakiye"),{
+  var ZOOM_OPTS={zoom:{drag:{enabled:true,backgroundColor:"rgba(26,115,232,0.15)"},wheel:{enabled:true,modifierKey:"ctrl"},pinch:{enabled:true},mode:"x"}};
+  window._chart1=new Chart(document.getElementById("chartBakiye"),{
     type:"line",
     data:{labels:labels,datasets:[{data:values,segment:{borderColor:function(ctx){return ctx.p0DataIndex<si-1?"#1a73e8":"#f59e0b";}},pointRadius:0,borderWidth:2,tension:0.1,fill:false}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},zoom:ZOOM_OPTS,tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
       scales:{x:{ticks:{maxTicksLimit:14,callback:function(val,i){return labels[i]?labels[i].slice(0,7):""}},grid:{display:false}},y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}}}
   });
+  document.getElementById("chartBakiye").ondblclick=function(){window._chart1.resetZoom();};
   // === IKINCI GRAFIK: Tam gecmis (2022-05-18 basi, 38.000 TL) — gercek veri ===
   var SCALE2=DAILY_DATA_2022[DAILY_DATA_2022.length-1][1]/100000;
   var tamData=DAILY_DATA_2022.concat(extData.map(function(x){return [x[0], Math.round(x[1]*SCALE2*100)/100];}));
+  window._tamData=tamData;
   var tamSi=DAILY_DATA_2022.length + si;
   var tamLabels=tamData.map(function(x){return x[0];});
   var tamValues=tamData.map(function(x){return x[1];});
-  new Chart(document.getElementById("chartBakiyeTam"),{
+  // === TUM ZAMANLAR istatistikleri (tamData uzerinden) ===
+  (function(){
+    var ti=tamData[0][1], ts=tamData[tamData.length-1][1];
+    var tPct=((ts/ti)-1)*100;
+    var tSd=new Date(tamData[0][0]), tEd=new Date(tamData[tamData.length-1][0]);
+    var tDays=Math.round((tEd-tSd)/86400000);
+    var tYil=Math.floor(tDays/365), tAy=Math.floor((tDays%365)/30), tGun=(tDays%365)%30;
+    var tSure=""; if(tYil>0)tSure+=tYil+" yil "; if(tAy>0)tSure+=tAy+" ay "; if(tGun>0&&tYil===0)tSure+=tGun+" gun";
+    var tPeak=ti, tDD=0;
+    for(var j=0;j<tamData.length;j++){var b=tamData[j][1]; if(b>tPeak)tPeak=b; var dd=(tPeak-b)/tPeak*100; if(dd>tDD)tDD=dd;}
+    var tgs=0; for(var k=1;k<tamData.length;k++) tgs+=(tamData[k][1]/tamData[k-1][1]-1)*100;
+    var tgo=tgs/(tamData.length-1);
+    document.getElementById("sTamToplam").textContent=(tPct>=0?"+":"")+tPct.toFixed(1)+"%";
+    document.getElementById("sTamToplam").style.color=tPct>=0?"#16a34a":"#dc2626";
+    document.getElementById("sTamSure").textContent=tSure.trim();
+    document.getElementById("sTamDrawdown").textContent="-"+tDD.toFixed(1)+"%";
+    document.getElementById("sTamGunluk").textContent=(tgo>=0?"+":"")+tgo.toFixed(3)+"%";
+  })();
+  window._chart2=new Chart(document.getElementById("chartBakiyeTam"),{
     type:"line",
     data:{labels:tamLabels,datasets:[{data:tamValues,segment:{borderColor:function(ctx){return ctx.p0DataIndex<tamSi-1?"#1a73e8":"#f59e0b";}},pointRadius:0,borderWidth:2,tension:0.1,fill:false}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},zoom:ZOOM_OPTS,tooltip:{callbacks:{label:function(ctx){return new Intl.NumberFormat("tr-TR").format(Math.round(ctx.raw))+" TL";}}}},
       scales:{x:{ticks:{maxTicksLimit:14,callback:function(val,i){return tamLabels[i]?tamLabels[i].slice(0,7):""}},grid:{display:false}},y:{ticks:{callback:function(v){return new Intl.NumberFormat("tr-TR").format(Math.round(v));}}}}}
   });
-  // Aylik getiri: extData'dan dinamik hesapla
-  // Her ay icin: o ayin ilk gununun onceki ayin son bakiyesi baz alinir
+  document.getElementById("chartBakiyeTam").ondblclick=function(){window._chart2.resetZoom();};
+  // Aylik getiri: tamData'dan (2022'den beri) SUREKLI hesapla
+  // Her ay = o ayin son bakiyesi / bir onceki ayin son bakiyesi
   var aylikData={};
-  // Once MONTHLY_PCT'yi base al (gecmis sabit veriler)
-  Object.keys(MONTHLY_PCT).forEach(function(ym){ aylikData[ym]=MONTHLY_PCT[ym]; });
-  // extData'dan DB+canli gunleri icin son N ayin gercek degerini hesapla
-  // extData'daki son 2 ayi dinamik hesapla (DB verileri geldikce daha dogru olur)
-  var aylikSon={};
-  for(var ai=0;ai<extData.length;ai++){
-    var aym=extData[ai][0].slice(0,7);
-    aylikSon[aym]={bakiye:extData[ai][1],idx:ai};
-    if(!aylikSon[aym].first) aylikSon[aym].first={bakiye:extData[ai][1],idx:ai};
+  var monthEnd={}, monthOrder=[];
+  for(var ai=0;ai<tamData.length;ai++){
+    var aym=tamData[ai][0].slice(0,7);
+    if(monthEnd[aym]===undefined) monthOrder.push(aym);
+    monthEnd[aym]=tamData[ai][1];
   }
-  // Her ay icin: o ayin son bakiyesi / bir onceki ayin son bakiyesi
-  var aylar=Object.keys(aylikSon).sort();
-  for(var ai2=1;ai2<aylar.length;ai2++){
-    var curAy=aylar[ai2];
-    var prevAy=aylar[ai2-1];
-    if(aylikSon[prevAy] && aylikSon[curAy]){
-      var prevB2=aylikSon[prevAy].bakiye;
-      var curB2=aylikSon[curAy].bakiye;
-      var ayPct=Math.round((curB2/prevB2-1)*10000)/100;
-      // Sadece DAILY_DATA'dan sonraki aylar icin guncelle (oncekiler sabit kalsin)
-      var lastStaticAy=Object.keys(MONTHLY_PCT).sort().pop();
-      if(curAy>=lastStaticAy){
-        aylikData[curAy]=ayPct;
-      }
-    }
+  var prevEnd=tamData[0][1];
+  for(var mi=0;mi<monthOrder.length;mi++){
+    var ym2=monthOrder[mi];
+    aylikData[ym2]=Math.round((monthEnd[ym2]/prevEnd-1)*10000)/100;
+    prevEnd=monthEnd[ym2];
   }
+  window._aylikData=aylikData;
   var grid=document.getElementById("monthlyGrid");
   var entries=Object.keys(aylikData).sort();
   for(var q=0;q<entries.length;q++){
@@ -2889,6 +2915,17 @@ async function init(){
     grid.appendChild(cell);
   }
 }
+function toggleFs(id){
+  var el=document.getElementById(id); if(!el)return;
+  if(!document.fullscreenElement && !document.webkitFullscreenElement){
+    (el.requestFullscreen||el.webkitRequestFullscreen).call(el);
+  } else {
+    (document.exitFullscreen||document.webkitExitFullscreen).call(document);
+  }
+}
+function _fsResize(){ setTimeout(function(){ if(window._chart1)window._chart1.resize(); if(window._chart2)window._chart2.resize(); },100); }
+document.addEventListener("fullscreenchange",_fsResize);
+document.addEventListener("webkitfullscreenchange",_fsResize);
 init();
 </script>
 </body>
