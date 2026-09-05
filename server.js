@@ -195,6 +195,16 @@ async function initDB() {
         son_guncelleyen VARCHAR(20) DEFAULT 'migration'
       )
     `);
+    // Hisse fiyat referanslari (2026-09-05): robotun lot hesabinda kullandigi fiyat.
+    // MT5'ten iOpen okumak bar bazinda titriyordu (senkron sorunu) — artik TEK kaynak burasi:
+    // patron vade tasimasinda 7 fiyati elle girer, robotlar /api/lot yanitindan okur, ay ici sabit.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lot_fiyatlar (
+        hisse VARCHAR(10) PRIMARY KEY,
+        fiyat DECIMAL(12,2),
+        son_guncelleme TIMESTAMP DEFAULT NOW()
+      )
+    `);
     // Mevcut musterilerden lot_referans'a otomatik aktarim (yoksa ekle)
     await pool.query(`
       INSERT INTO lot_referans (hesap_no, baslangic_parasi, baslangic_tarihi, son_guncelleyen)
@@ -1133,12 +1143,21 @@ app.get('/api/lot', async (req, res) => {
     const result = await pool.query('SELECT * FROM lot_referans WHERE hesap_no = $1', [hesap_no]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'kayit yok', hesap_no });
     const r = result.rows[0];
+    // Hisse fiyat referanslarini da ayni yanitta ver (robot tek istekle her seyi alir;
+    // duz anahtar "fiyat_AKBNK" bicimi — EA'nin basit JSON okuyucusu icin)
+    const fiyatlar = {};
+    try {
+      for (const f of (await pool.query('SELECT hisse, fiyat FROM lot_fiyatlar')).rows) {
+        fiyatlar['fiyat_' + f.hisse] = parseFloat(f.fiyat);
+      }
+    } catch (e) { console.log('lot_fiyatlar okunamadi:', e.message); }
     res.json({
       hesap_no: r.hesap_no,
       baslangic_parasi: parseFloat(r.baslangic_parasi),
       baslangic_tarihi: r.baslangic_tarihi,
       override: r.override,
-      son_guncelleme: r.son_guncelleme
+      son_guncelleme: r.son_guncelleme,
+      ...fiyatlar
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1254,6 +1273,33 @@ app.post('/api/lot-guncelle/:hesap_no', async (req, res) => {
     `, [hesap_no, v]);
     console.log('Lot tekli guncelle:', hesap_no, '->', Math.round(v));
     res.json({ ok: true, hesap_no, yeni: Math.round(v) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Hisse fiyat referanslari — listele
+app.get('/api/lot-fiyatlar', async (req, res) => {
+  try {
+    const rows = (await pool.query('SELECT hisse, fiyat, son_guncelleme FROM lot_fiyatlar ORDER BY hisse')).rows;
+    res.json(rows.map(r => ({ hisse: r.hisse, fiyat: parseFloat(r.fiyat), son_guncelleme: r.son_guncelleme })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Hisse fiyat referanslari — kaydet (7'si birden; panel arayuzunden, elle)
+app.post('/api/lot-fiyatlar', async (req, res) => {
+  try {
+    const { fiyatlar } = req.body; // { AKBNK: 72.4, ... }
+    const GECERLI = ['AKBNK', 'ISCTR', 'GARAN', 'YKBNK', 'EKGYO', 'THYAO', 'EREGL'];
+    if (!fiyatlar || typeof fiyatlar !== 'object') return res.status(400).json({ error: 'fiyatlar zorunlu' });
+    for (const h of GECERLI) {
+      const f = parseFloat(fiyatlar[h]);
+      if (!f || f <= 0) return res.status(400).json({ error: h + ' icin gecerli fiyat gerekli (7 alan da dolu olmali)' });
+    }
+    for (const h of GECERLI) {
+      await pool.query(`
+        INSERT INTO lot_fiyatlar (hisse, fiyat, son_guncelleme) VALUES ($1, $2, NOW())
+        ON CONFLICT (hisse) DO UPDATE SET fiyat = $2, son_guncelleme = NOW()
+      `, [h, parseFloat(fiyatlar[h])]);
+    }
+    console.log('Lot fiyat referanslari guncellendi:', GECERLI.map(h => h + '=' + fiyatlar[h]).join(' '));
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // Lot Sistemi sayfasi
@@ -3456,6 +3502,15 @@ tr:hover{background:rgba(255,255,255,0.02)}
     </div>
     <button onclick="guncelleToplu()" style="background:#16a34a;color:#fff;border:none;padding:11px 18px;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:700">💰 Tümünü Güncelle</button>
   </div>
+  <div style="background:#101a2e;border:2px solid #3b82f6;border-radius:10px;padding:14px 18px;margin-bottom:16px">
+    <div style="font-size:0.85rem;color:#3b82f6;font-weight:700;margin-bottom:4px">📌 Hisse Fiyat Referansları</div>
+    <div style="font-size:0.72rem;color:#94a3b8;line-height:1.5;margin-bottom:10px">Robot lot hesabında bu fiyatları kullanır (MT5'ten fiyat okumaz). Vade taşımasında 7 fiyatı elle gir, Kaydet. Ay içinde sabit kalır. <strong style="color:#ef4444">7 alan da dolu olmalı — boş/0 alan robotların başlamasını engeller.</strong></div>
+    <div id="fiyatAlanlari" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:10px"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button onclick="fiyatlarKaydet()" style="background:#3b82f6;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:700">📌 Fiyatları Kaydet</button>
+      <span id="fiyatInfo" style="font-size:0.72rem;color:#64748b">Yükleniyor...</span>
+    </div>
+  </div>
   <div class="info-box">
     <strong>Bilgi:</strong> Robot her saatte bir bu değeri okur ve lotunu buna göre belirler (ay içinde sabit). Başlangıç parası artık <strong style="color:#22c55e">YALNIZ</strong> senin "💰 Güncelle" butonunla değişir — robot vade taşımada kendisi yazmaz. <strong style="color:#f59e0b">MANUEL:</strong> override aktif; robot bu değeri kullanır.
   </div>
@@ -3573,6 +3628,47 @@ async function guncelleToplu(){
     }
     alert(msg);
     load();
+  }catch(e){alert('Bağlantı hatası: '+e.message);}
+}
+var HISSELER=['AKBNK','ISCTR','GARAN','YKBNK','EKGYO','THYAO','EREGL'];
+var eskiFiyatlar={};
+async function fiyatlarYukle(){
+  var kutu=document.getElementById('fiyatAlanlari');
+  kutu.innerHTML=HISSELER.map(function(h){
+    return '<div><div style="font-size:0.65rem;color:#64748b;margin-bottom:3px;font-weight:700">'+h+'</div>'+
+      '<input type="text" id="fx_'+h+'" inputmode="decimal" placeholder="0,00" style="width:100%;background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:8px 10px;border-radius:6px;font-size:0.95rem;text-align:right;font-weight:700"></div>';
+  }).join('');
+  try{
+    var r=await fetch('/api/lot-fiyatlar');
+    var rows=await r.json();
+    var sonT=null;
+    rows.forEach(function(f){
+      eskiFiyatlar[f.hisse]=f.fiyat;
+      var el=document.getElementById('fx_'+f.hisse);
+      if(el)el.value=(''+f.fiyat).replace('.',',');
+      if(!sonT||f.son_guncelleme>sonT)sonT=f.son_guncelleme;
+    });
+    document.getElementById('fiyatInfo').textContent = rows.length===7 ? ('Son kayıt: '+(sonT?new Date(sonT).toLocaleString('tr-TR'):'-')) : '⚠️ Henüz '+rows.length+'/7 fiyat kayıtlı — robotlar 7/7 olmadan başlamaz';
+  }catch(e){document.getElementById('fiyatInfo').textContent='Fiyatlar yüklenemedi';}
+}
+async function fiyatlarKaydet(){
+  var fiyatlar={},eksik=[],buyukFark=[];
+  for(var i=0;i<HISSELER.length;i++){
+    var h=HISSELER[i];
+    var v=parseFloat((document.getElementById('fx_'+h).value||'').replace(',','.'));
+    if(!v||v<=0){eksik.push(h);continue;}
+    fiyatlar[h]=v;
+    var eski=eskiFiyatlar[h];
+    if(eski&&Math.abs(v/eski-1)>0.30)buyukFark.push(h+': '+(''+eski).replace('.',',')+' → '+(''+v).replace('.',',')+' (%'+Math.round(Math.abs(v/eski-1)*100)+')');
+  }
+  if(eksik.length){alert('Eksik/geçersiz fiyat: '+eksik.join(', ')+'\\n\\n7 alan da dolu olmalı — boş alan robotları durdurur.');return;}
+  if(buyukFark.length&&!confirm('⚠️ %30 üstü değişim var, EMİN MİSİN?\\n\\n'+buyukFark.join('\\n')+'\\n\\n(Yanlış basış kontrolü — lot bu fiyatlarla hesaplanacak)'))return;
+  if(!confirm('7 hisse fiyat referansı kaydedilecek. Robotlar en geç 1 saat içinde yeni fiyatlarla lot hesaplar.\\n\\nDevam?'))return;
+  try{
+    var r=await fetch('/api/lot-fiyatlar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fiyatlar:fiyatlar})});
+    var d=await r.json();
+    if(d.ok){alert('✅ Fiyat referansları kaydedildi.');fiyatlarYukle();}
+    else alert('Hata: '+(d.error||'bilinmeyen'));
   }catch(e){alert('Bağlantı hatası: '+e.message);}
 }
 async function load(){
@@ -3713,6 +3809,7 @@ async function resetOverride(hesap_no){
 }
 load();
 vadeGunYukle();
+fiyatlarYukle();
 setInterval(load,30000);
 setInterval(vadeGunYukle,60000);
 </script>
