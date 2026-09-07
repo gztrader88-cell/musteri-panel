@@ -1275,6 +1275,19 @@ app.post('/api/lot-guncelle/:hesap_no', async (req, res) => {
     res.json({ ok: true, hesap_no, yeni: Math.round(v) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// Robot lisans kontrolu (EA v5.03, 2026-09-07): hesap Musteriler kaydinda (aktif) var mi?
+// EA bunu YALNIZ acilista sorar; calisirken tekrar sormaz. Kod icindeki sabit liste kaldirildi —
+// tek dogruluk kaynagi bu tablo. Yeni musteri = Musteriler sayfasina ekle, robot calisir.
+app.get('/api/lisans', async (req, res) => {
+  try {
+    const { hesap_no } = req.query;
+    if (!hesap_no) return res.status(400).json({ error: 'hesap_no zorunlu' });
+    const r = await pool.query('SELECT aktif FROM musteri_kayit WHERE hesap_no = $1', [hesap_no]);
+    const ok = r.rows.length > 0 && (r.rows[0].aktif === null || r.rows[0].aktif === true);
+    console.log('Lisans kontrol:', hesap_no, '->', ok ? 'OK' : 'YOK');
+    res.json({ ok, hesap_no });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // Hisse fiyat referanslari — listele
 app.get('/api/lot-fiyatlar', async (req, res) => {
   try {
