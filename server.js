@@ -172,6 +172,17 @@ async function initDB() {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // === YEDİLİ GÜNLÜK (TV göstergesi gün sonu webhook beslemesi) ===
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS yedili_gunluk (
+        id SERIAL PRIMARY KEY,
+        tarih VARCHAR(10) UNIQUE,
+        pct DECIMAL(10,3),
+        ay_ici DECIMAL(10,3),
+        bacak TEXT,
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
     // === POZISYON DETAY TABLOSU ===
     await pool.query(`
       CREATE TABLE IF NOT EXISTS musteri_pozisyonlar (
@@ -1123,6 +1134,38 @@ app.post('/api/robot-gunluk/:tarih/guncelle', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Yedili günlük — TV göstergesinden gün sonu webhook (aynı tarihe tekrar gelirse günceller)
+app.post('/api/yedili-gunluk', async (req, res) => {
+  try {
+    let b = req.body;
+    if (typeof b === 'string') { try { b = JSON.parse(b); } catch(e) { return res.status(400).json({ error: 'json degil' }); } }
+    const { tip, tarih, pct, ayIci, bacak } = b || {};
+    if (tip !== 'yedili_gun' || !tarih || !/^\d{4}-\d{2}-\d{2}$/.test(tarih) || typeof pct !== 'number' || !isFinite(pct)) {
+      return res.status(400).json({ error: 'eksik/bozuk veri' });
+    }
+    // hafta sonu koruması (panel dersi): Cts/Paz tarihli kayıt alınmaz
+    const hg = new Date(tarih + 'T12:00:00Z').getUTCDay();
+    if (hg === 0 || hg === 6) return res.status(400).json({ error: 'hafta sonu' });
+    await pool.query(
+      'INSERT INTO yedili_gunluk (tarih, pct, ay_ici, bacak, updated_at) VALUES ($1, $2, $3, $4, NOW()) ' +
+      'ON CONFLICT (tarih) DO UPDATE SET pct = $2, ay_ici = $3, bacak = $4, updated_at = NOW()',
+      [tarih, pct, (typeof ayIci === 'number' && isFinite(ayIci)) ? ayIci : null, bacak ? JSON.stringify(bacak) : null]
+    );
+    res.json({ ok: true });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// Yedili günlük serisi (panel sayfası açılırken son günleri çeker)
+app.get('/api/yedili-gunluk', async (req, res) => {
+  try {
+    const son = Math.min(parseInt(req.query.son) || 120, 1000);
+    const result = await pool.query('SELECT tarih, pct, ay_ici, bacak, updated_at FROM yedili_gunluk ORDER BY tarih DESC LIMIT $1', [son]);
+    res.json(result.rows.reverse());
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/api/robot-gunluk', async (req, res) => {
   try {
     const result = await pool.query('SELECT tarih, bakiye, gunluk_pct, musteri_sayisi FROM robot_gunluk ORDER BY tarih ASC');
@@ -1567,7 +1610,7 @@ function getMainPage() {
     <h1>Musteri Takip Paneli</h1>
     <div class="market-status" id="marketStatus">Piyasa durumu yukleniyor...</div>
     <div class="header-btns">
-      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><a href="/sinyaller" class="header-btn">📡 Sinyaller</a><a href="/lot-sistemi" class="header-btn">📊 Lot</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative;font-family:inherit">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;align-items:center;justify-content:center;font-weight:bold">0</span></button>
+      <a href="/musteriler" class="header-btn">👥 Musteriler</a><a href="/robot" class="header-btn">📈 Robot</a><a href="/sinyaller" class="header-btn">📡 Sinyaller</a><a href="/lot-sistemi" class="header-btn">📊 Lot</a><a href="/yedili-takip" class="header-btn">📅 Yedili Takip</a><button class="header-btn" onclick="showParaHareketleri()" id="paraHareketBtn" style="position:relative;font-family:inherit">💰 Hareketler<span id="paraHareketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;align-items:center;justify-content:center;font-weight:bold">0</span></button>
       <a href="/api/export" class="header-btn">📥 Excel</a>
       <button class="header-btn" onclick="showSettings()">⚙️</button>
     </div>
@@ -3247,6 +3290,12 @@ app.get('/api/pozisyon-detay', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // Sinyaller sayfasi
+// Yedili Sistem Takip — TAMAMEN BAĞIMSIZ statik sayfa (yedili_takip.html dosyasından).
+// Kritik mekanizmalarla (robot sinyalleri, müşteri loginleri, lot) HİÇBİR bağı yoktur;
+// verisini kendi tablosundan (/api/yedili-gunluk, TV göstergesi webhook'u) alır.
+app.get('/yedili-takip', robotAuth, (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'yedili_takip.html'));
+});
 app.get('/sinyaller', robotAuth, (req, res) => { res.send(getSinyallerPage()); });
 function getSinyallerPage() {
   return `<!DOCTYPE html>
