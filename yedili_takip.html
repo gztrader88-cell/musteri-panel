@@ -82,7 +82,7 @@
 </style>
 </head>
 <body>
-<a id="geriBtn" href="/" style="display:none; margin-bottom:12px; padding:6px 14px; background:#1a2030; border:1px solid #2a3040; border-radius:8px; color:#e8eaed; text-decoration:none; font-size:13px;">← Ana Sayfa</a>
+<a id="geriBtn" href="/" style="display:inline-block; margin-bottom:12px; padding:6px 14px; background:#1a2030; border:1px solid #2a3040; border-radius:8px; color:#e8eaed; text-decoration:none; font-size:13px;">← Ana Sayfa</a>
 <div class="ust">
   <div>
     <div class="tarih" id="tarih">—</div>
@@ -241,7 +241,6 @@ function turetilmisKur() {
   }
 }
 turetilmisKur();
-if (location.pathname === '/yedili-takip') document.getElementById('geriBtn').style.display = 'inline-block';
 // ── YIL YIL + AY AY karneleri (G2'den her kuruluşta taze; canlı ek sonrası yeniden çağrılır) ──
 const BASLA0 = 100000;
 const AY_KIS = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
