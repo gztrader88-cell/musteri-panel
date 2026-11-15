@@ -136,11 +136,15 @@ function fmtTL(v) { return v.toLocaleString('tr-TR') + ' ₺'; }
 function fmtT(d) { const [y,m,g] = d.split('-'); return (+g) + ' ' + AYLAR[+m-1] + ' ' + y; }
 let iSon = null, yilSecili = 0; // yıl seçiliyken grafiğin son günü (null = serinin son günü)
 function ust() { return iSon === null ? G2.length - 1 : Math.min(iSon, G2.length - 1); }
+function alt() { return yilSecili ? i0 : 0; } // yıl seçiliyken grafik o yılın dışına kaydırılamaz
+// YIL SEÇİLİYKEN: o yılın başında 100.000 TL ile başlanmış gibi gösterilir (yalnız gösterim ölçeği; getiriler aynıdır)
+function olcek() { return yilSecili ? 100000 / G2[i0].v : 1; }
 function yilCiz() {
   const ys = []; for (const g of G2) { const y = +g.d.slice(0, 4); if (ys[ys.length - 1] !== y) ys.push(y); }
   document.getElementById('yillar').innerHTML = '<span class="yet">Yıl seç</span>' +
     '<button class="' + (yilSecili === 0 ? 'sec' : '') + '" onclick="yilSec(0)">Tümü</button>' +
-    ys.map(y => '<button class="' + (yilSecili === y ? 'sec' : '') + '" onclick="yilSec(' + y + ')">' + y + '</button>').join('');
+    ys.map(y => '<button class="' + (yilSecili === y ? 'sec' : '') + '" onclick="yilSec(' + y + ')">' + y + '</button>').join('') +
+    (yilSecili ? '<span class="yet" style="margin-left:6px;">' + yilSecili + ' başında 100.000 ₺ ile başlamış gibi</span>' : '');
 }
 function yilSec(y) {
   zw = null; chIx = -1; yilSecili = y;
@@ -153,6 +157,7 @@ function yilSec(y) {
   }
   const bar = document.getElementById('bar'); bar.min = i0 + 1; bar.max = ust();
   document.getElementById('aralik').value = '0';
+  turetilmisKur();
   yilCiz(); guncelle();
 }
 let zw = null; // yakınlaştırma penceresi {a,b,takip} — null = otomatik (aralık başı → oynatma günü)
@@ -160,8 +165,8 @@ function ciz() {
   const svg = document.getElementById('svg');
   let a = i0, b = ix;
   if (zw) {
-    if (zw.takip) { const span = zw.b - zw.a; zw.b = ix; zw.a = Math.max(0, ix - span); }
-    a = Math.max(0, Math.min(zw.a, ix - 1)); b = Math.max(a + 1, Math.min(zw.b, ix));
+    if (zw.takip) { const span = zw.b - zw.a; zw.b = ix; zw.a = Math.max(alt(), ix - span); }
+    a = Math.max(alt(), Math.min(zw.a, ix - 1)); b = Math.max(a + 1, Math.min(zw.b, ix));
   }
   const seg = G2.slice(a, b + 1);
   const vs = seg.map(g => Math.log(g.v));
@@ -183,8 +188,8 @@ function ciz() {
   const ylabEl = document.getElementById('ylab'), xlabEl = document.getElementById('xlab');
   let yhtml = '', gorulen = [];
   for (const fr of [0.18, 0.5, 0.82]) {
-    const nv = nizami(Math.exp(mn + fr * sp));
-    const u = (Math.log(nv) - mn) / sp;
+    const nv = nizami(Math.exp(mn + fr * sp) * olcek());
+    const u = (Math.log(nv / olcek()) - mn) / sp;
     if (u < 0.04 || u > 0.96 || gorulen.indexOf(nv) >= 0) continue;
     gorulen.push(nv);
     const yy = Hh - pad - (Hh - 2*pad) * u;
@@ -243,7 +248,7 @@ function chGuncelle() {
   nok.style.left = xPct.toFixed(2) + '%'; nok.style.top = yPct.toFixed(1) + '%'; nok.style.display = 'block';
   const chDd = (RP[chIx] - g.v) / RP[chIx] * 100;
   const chDdStr = chDd < 0.05 ? '<span class="arti">🏔 Zirvede</span>' : '<span style="color:#8a8f98;">zirveden</span> <span class="' + (chDd >= 20 ? 'eksi' : '') + '" style="font-weight:600;">−%' + chDd.toFixed(1).replace('.', ',') + '</span>';
-  tip.innerHTML = '<span style="color:#9fb6d4;">' + fmtT(g.d) + '</span><br><b>' + fmtTL(g.v) + '</b> &nbsp;<span class="' + (g.p > 0.05 ? 'arti' : g.p < -0.05 ? 'eksi' : 'notr') + '">' + (g.p > 0 ? '+' : '') + g.p.toFixed(2).replace('.', ',') + '%</span><br>' + chDdStr;
+  tip.innerHTML = '<span style="color:#9fb6d4;">' + fmtT(g.d) + '</span><br><b>' + fmtTL(Math.round(g.v * olcek())) + '</b> &nbsp;<span class="' + (g.p > 0.05 ? 'arti' : g.p < -0.05 ? 'eksi' : 'notr') + '">' + (g.p > 0 ? '+' : '') + g.p.toFixed(2).replace('.', ',') + '%</span><br>' + chDdStr;
   if (xPct < 68) { tip.style.left = 'calc(' + xPct.toFixed(2) + '% + 12px)'; tip.style.right = 'auto'; }
   else { tip.style.right = 'calc(' + (100 - xPct).toFixed(2) + '% + 12px)'; tip.style.left = 'auto'; }
   tip.style.top = Math.max(2, Math.min(70, yPct - 16)).toFixed(1) + '%';
@@ -252,15 +257,16 @@ function chGuncelle() {
 // o güne kadarki TÜM ZAMANLAR zirvesi (koşan zirve + zirve günü)
 let RP, RPix, STATE;
 function turetilmisKur() {
+  const bas = alt(), bit = ust(); // yıl seçiliyken zirve o yılın başından sayılır (o gün başlayan biri gibi)
   RP = new Array(G2.length); RPix = new Array(G2.length);
-  { let pk = -Infinity, pki = 0; for (let k = 0; k < G2.length; k++) { if (G2[k].v > pk) { pk = G2[k].v; pki = k; } RP[k] = pk; RPix[k] = pki; } }
+  { let pk = -Infinity, pki = 0; for (let k = bas; k <= bit; k++) { if (G2[k].v > pk) { pk = G2[k].v; pki = k; } RP[k] = pk; RPix[k] = pki; } }
   // ── düşüş/toparlanma şeridi (TV "run-ups and drawdowns" bandı): zirve→dip kırmızı, dip→yeni zirve yeşil ──
   STATE = new Array(G2.length).fill(1);
   const zirveler = [];
   let mx = -Infinity;
-  for (let k = 0; k < G2.length; k++) if (G2[k].v >= mx) { mx = G2[k].v; zirveler.push(k); }
+  for (let k = bas; k <= bit; k++) if (G2[k].v >= mx) { mx = G2[k].v; zirveler.push(k); }
   for (let pi = 0; pi < zirveler.length; pi++) {
-    const p1 = zirveler[pi], p2 = (pi + 1 < zirveler.length) ? zirveler[pi + 1] : G2.length - 1;
+    const p1 = zirveler[pi], p2 = (pi + 1 < zirveler.length) ? zirveler[pi + 1] : bit;
     if (p2 <= p1 + 1) continue;
     let tr = p1 + 1;
     for (let k = p1 + 1; k <= p2; k++) if (G2[k].v < G2[tr].v) tr = k;
@@ -331,7 +337,7 @@ karneKur();
 function guncelle() {
   const g = G2[ix];
   document.getElementById('tarih').textContent = fmtT(g.d);
-  document.getElementById('tl').textContent = fmtTL(g.v);
+  document.getElementById('tl').textContent = fmtTL(Math.round(g.v * olcek()));
   const gp = document.getElementById('gun');
   gp.textContent = 'bugün ' + (g.p > 0 ? '+' : '') + g.p.toFixed(2).replace('.', ',') + '%';
   gp.className = 'gun ' + (g.p > 0.05 ? 'arti' : g.p < -0.05 ? 'eksi' : 'notr');
@@ -361,8 +367,8 @@ function oynat() {
   const svg = document.getElementById('svg');
   function pencere() { return zw ? [zw.a, zw.b] : [i0, ix]; }
   function ayarla(a, b) {
-    a = Math.max(0, Math.round(a)); b = Math.min(ix, Math.round(b));
-    if (b - a < 5) { const c = (a + b) / 2; a = Math.max(0, Math.round(c) - 2); b = Math.min(ix, a + 5); }
+    a = Math.max(alt(), Math.round(a)); b = Math.min(ix, Math.round(b));
+    if (b - a < 5) { const c = (a + b) / 2; a = Math.max(alt(), Math.round(c) - 2); b = Math.min(ix, a + 5); }
     if (a <= i0 && b >= ix) zw = null;
     else zw = { a, b, takip: b >= ix };
     ciz();
@@ -406,8 +412,8 @@ function oynat() {
     if (pts.size === 1) {
       const di = -(e.clientX - basX) / r.width * span0;
       let a = basWin[0] + di, b = basWin[1] + di;
-      if (a < 0) { b -= a; a = 0; }
-      if (b > ix) { a -= (b - ix); b = ix; a = Math.max(0, a); }
+      if (a < alt()) { b += alt() - a; a = alt(); }
+      if (b > ix) { a -= (b - ix); b = ix; a = Math.max(alt(), a); }
       ayarla(a, b);
     } else if (pts.size === 2) {
       const xs = [...pts.values()];
@@ -437,7 +443,7 @@ function oynat() {
   svg.addEventListener('dblclick', function() { zw = null; ciz(); });
 })();
 function aralikSec() {
-  zw = null; iSon = null; yilSecili = 0; document.getElementById('bar').max = G2.length - 1; yilCiz();
+  zw = null; iSon = null; yilSecili = 0; document.getElementById('bar').max = G2.length - 1; turetilmisKur(); yilCiz();
   const v = +document.getElementById('aralik').value;
   if (v === 0) i0 = 0;
   else {
