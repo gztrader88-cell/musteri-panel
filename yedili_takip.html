@@ -79,6 +79,10 @@
   button.oynat { background:#1a5fb4; min-width:130px; }
   input[type=range] { flex:1; min-width:200px; accent-color:#4da3ff; }
   select { background:#1e2636; color:#e8eaed; border:0; border-radius:10px; padding:12px 14px; font-size:15px; }
+  .yillar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+  .yillar .yet { font-size:12px; color:#7887a0; margin-right:4px; }
+  .yillar button { padding:7px 14px; font-size:13.5px; border-radius:16px; font-weight:600; }
+  .yillar button.sec { background:#1a5fb4; }
   .alt { margin-top:14px; font-size:12px; color:#5a6472; }
 </style>
 </head>
@@ -104,7 +108,8 @@
 <div id="chTip" style="display:none; position:absolute; background:rgba(12,15,22,.92); border:1px solid #2a3040; border-radius:8px; padding:7px 11px; font-size:12.5px; line-height:1.5; pointer-events:none; white-space:nowrap; z-index:5;"></div>
 </div>
 <div id="serit" style="height:8px; border-radius:3px; margin:4px 0.67% 0;"></div>
-<div style="margin-top:6px; font-size:11.5px; color:#5a6472;">🔍 Tekerlek: yakınlaş &nbsp;·&nbsp; Sürükle: kaydır &nbsp;·&nbsp; Çift tık: sıfırla &nbsp;·&nbsp; İmleci gezdir / dokun &nbsp;·&nbsp; Alt şerit: <span style="color:#ff5f6e;">■ zirveden düşüş</span> <span style="color:#37c978;">■ toparlanma / zirve</span></div></div>
+<div style="margin-top:6px; font-size:11.5px; color:#5a6472;">🔍 Tekerlek: yakınlaş &nbsp;·&nbsp; Sürükle: kaydır &nbsp;·&nbsp; Çift tık: sıfırla &nbsp;·&nbsp; İmleci gezdir / dokun &nbsp;·&nbsp; Alt şerit: <span style="color:#ff5f6e;">■ zirveden düşüş</span> <span style="color:#37c978;">■ toparlanma / zirve</span></div>
+<div class="yillar" id="yillar"></div></div>
 <div class="kontrol">
   <button onclick="adim(-1)">◀ Gün</button>
   <button class="oynat" id="btnOynat" onclick="oynat()">▶ Oynat</button>
@@ -129,6 +134,27 @@ const G2 = D.gunler;
 document.getElementById('bar').max = G2.length - 1;
 function fmtTL(v) { return v.toLocaleString('tr-TR') + ' ₺'; }
 function fmtT(d) { const [y,m,g] = d.split('-'); return (+g) + ' ' + AYLAR[+m-1] + ' ' + y; }
+let iSon = null, yilSecili = 0; // yıl seçiliyken grafiğin son günü (null = serinin son günü)
+function ust() { return iSon === null ? G2.length - 1 : Math.min(iSon, G2.length - 1); }
+function yilCiz() {
+  const ys = []; for (const g of G2) { const y = +g.d.slice(0, 4); if (ys[ys.length - 1] !== y) ys.push(y); }
+  document.getElementById('yillar').innerHTML = '<span class="yet">Yıl seç</span>' +
+    '<button class="' + (yilSecili === 0 ? 'sec' : '') + '" onclick="yilSec(0)">Tümü</button>' +
+    ys.map(y => '<button class="' + (yilSecili === y ? 'sec' : '') + '" onclick="yilSec(' + y + ')">' + y + '</button>').join('');
+}
+function yilSec(y) {
+  zw = null; chIx = -1; yilSecili = y;
+  if (!y) { i0 = 0; iSon = null; ix = G2.length - 1; }
+  else {
+    const ilk = G2.findIndex(g => +g.d.slice(0, 4) === y);
+    let son = ilk; while (son + 1 < G2.length && +G2[son + 1].d.slice(0, 4) === y) son++;
+    i0 = Math.max(0, ilk - 1); // bir önceki yılın son kapanışı başlangıç noktasıdır
+    iSon = son; ix = son;
+  }
+  const bar = document.getElementById('bar'); bar.min = i0 + 1; bar.max = ust();
+  document.getElementById('aralik').value = '0';
+  yilCiz(); guncelle();
+}
 let zw = null; // yakınlaştırma penceresi {a,b,takip} — null = otomatik (aralık başı → oynatma günü)
 function ciz() {
   const svg = document.getElementById('svg');
@@ -322,13 +348,13 @@ function guncelle() {
   document.getElementById('bar').value = ix;
   ciz();
 }
-function git(k) { ix = Math.max(i0 + 1, Math.min(G2.length - 1, k)); guncelle(); }
+function git(k) { ix = Math.max(i0 + 1, Math.min(ust(), k)); guncelle(); }
 function adim(dk) { git(ix + dk); }
 function oynat() {
   const b = document.getElementById('btnOynat');
   if (timer) { clearInterval(timer); timer = null; b.textContent = '▶ Oynat'; return; }
   b.textContent = '⏸ Durdur';
-  timer = setInterval(() => { if (ix >= G2.length - 1) { clearInterval(timer); timer = null; b.textContent = '▶ Oynat'; return; } ix++; guncelle(); }, +document.getElementById('hiz').value);
+  timer = setInterval(() => { if (ix >= ust()) { clearInterval(timer); timer = null; b.textContent = '▶ Oynat'; return; } ix++; guncelle(); }, +document.getElementById('hiz').value);
 }
 // ── grafik yakınlaştırma: tekerlek + sürükleme + çift tık + iki parmak ──
 (function zoomKur() {
@@ -411,7 +437,7 @@ function oynat() {
   svg.addEventListener('dblclick', function() { zw = null; ciz(); });
 })();
 function aralikSec() {
-  zw = null;
+  zw = null; iSon = null; yilSecili = 0; document.getElementById('bar').max = G2.length - 1; yilCiz();
   const v = +document.getElementById('aralik').value;
   if (v === 0) i0 = 0;
   else {
@@ -426,6 +452,7 @@ function aralikSec() {
 document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') adim(1); if (e.key === 'ArrowLeft') adim(-1); if (e.key === ' ') { e.preventDefault(); oynat(); } });
 // ── İcra Farkı tablosu (statik — gerçek veri olan günler) ──
 ix = G2.length - 1;
+yilCiz();
 guncelle();
 // ── CANLI EK: TV göstergesinin gün sonu beslemesi (bağımsız yedili_gunluk tablosu) ──
 // Mühürlü seriye (haftalık export) yalnız SONRAKİ günleri ekler; hata olursa sessizce vazgeçer.
@@ -449,8 +476,9 @@ guncelle();
     if (n > 0) {
       turetilmisKur();
       karneKur();
-      document.getElementById('bar').max = G2.length - 1;
-      ix = G2.length - 1;
+      document.getElementById('bar').max = ust();
+      if (iSon === null) ix = G2.length - 1;
+      yilCiz();
       guncelle();
     }
   } catch (e) {}
